@@ -30,7 +30,7 @@ pub async fn list_users(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<AppUser>>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_users(&*conn)?))
 }
 
@@ -40,7 +40,7 @@ pub async fn create_user(
     Json(input): Json<CreateUserInput>,
 ) -> Result<Json<AppUser>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::create_user(&*conn, &input, &claims.display_name)?))
 }
 
@@ -52,7 +52,7 @@ pub async fn update_user(
 ) -> Result<Json<AppUser>, AppError> {
     require_admin(&claims)?;
     input.id = id;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_user(&*conn, &input, &claims.display_name)?))
 }
 
@@ -63,7 +63,7 @@ pub async fn delete_user(
 ) -> Result<Json<()>, AppError> {
     require_admin(&claims)?;
     let current_user_id: i64 = claims.sub.parse().unwrap_or(0);
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::delete_user(&*conn, id, current_user_id, &claims.display_name)?;
     Ok(Json(()))
 }
@@ -74,7 +74,7 @@ pub async fn change_password(
     Json(input): Json<ChangePasswordInput>,
 ) -> Result<Json<()>, AppError> {
     let user_id: i64 = claims.sub.parse().unwrap_or(0);
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::change_password(&*conn, user_id, &input, &claims.display_name)?;
     Ok(Json(()))
 }
@@ -83,9 +83,11 @@ pub async fn change_password(
 
 pub async fn list_audit_log(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Query(q): Query<LimitQuery>,
 ) -> Result<Json<Vec<AuditLogEntry>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    require_admin(&claims)?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_audit_log(&*conn, q.limit.unwrap_or(150))?))
 }
 
@@ -94,7 +96,7 @@ pub async fn list_audit_log(
 pub async fn list_sla_policies(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<SlaPolicy>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_sla_policies(&*conn)?))
 }
 
@@ -104,14 +106,14 @@ pub async fn update_sla_policy(
     Json(input): Json<UpdateSlaPolicyInput>,
 ) -> Result<Json<SlaPolicy>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_sla_policy(&*conn, &input)?))
 }
 
 pub async fn list_assignment_rules(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<AssignmentRule>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_assignment_rules(&*conn)?))
 }
 
@@ -121,14 +123,14 @@ pub async fn update_assignment_rule(
     Json(input): Json<UpdateAssignmentRuleInput>,
 ) -> Result<Json<AssignmentRule>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_assignment_rule(&*conn, &input)?))
 }
 
 pub async fn get_escalation_policy(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<EscalationPolicy>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::get_escalation_policy(&*conn)?))
 }
 
@@ -138,14 +140,14 @@ pub async fn update_escalation_policy(
     Json(input): Json<UpdateEscalationPolicyInput>,
 ) -> Result<Json<EscalationPolicy>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_escalation_policy(&*conn, &input)?))
 }
 
 pub async fn list_communication_templates(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<CommunicationTemplate>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_communication_templates(&*conn)?))
 }
 
@@ -153,7 +155,7 @@ pub async fn update_communication_template(
     State(state): State<Arc<AppState>>,
     Json(input): Json<UpdateCommunicationTemplateInput>,
 ) -> Result<Json<CommunicationTemplate>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_communication_template(&*conn, &input)?))
 }
 
@@ -178,7 +180,7 @@ pub async fn db_snapshot(
     let temp_path = format!("{live_path}.snapshot.{}", std::process::id());
 
     {
-        let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+        let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
         let escaped = temp_path.replace('\'', "''");
         conn.execute(&format!("VACUUM INTO '{escaped}'"), [])
             .map_err(|e| AppError::internal(format!("VACUUM INTO failed: {e}")))?;
@@ -250,14 +252,19 @@ pub async fn db_restore(
             .map_err(|e| AppError::bad_request(format!("Migrations on uploaded DB failed: {e}")))?;
     }
 
-    // Atomic-ish swap: replace the in-memory connection, rename file, reopen.
-    let mut guard = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
-    *guard = rusqlite::Connection::open_in_memory()
-        .map_err(|e| AppError::internal(format!("temp conn: {e}")))?;
-    std::fs::rename(&staging_path, &live_path)
-        .map_err(|e| AppError::internal(format!("rename into place: {e}")))?;
-    *guard = db::open_db(&live_path)
-        .map_err(|e| AppError::internal(format!("reopen DB: {e}")))?;
+    // Overwrite the live database from the staged one using SQLite's backup API.
+    // This works safely even while the connection pool has other active connections.
+    let mut dst_conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let src_conn = rusqlite::Connection::open(&staging_path)
+        .map_err(|e| AppError::bad_request(format!("Cannot open staged DB for restore: {e}")))?;
+
+    let mut backup = rusqlite::backup::Backup::new(&src_conn, &mut dst_conn)
+        .map_err(|e| AppError::internal(format!("Backup init failed: {e}")))?;
+    backup.step(-1)
+        .map_err(|e| AppError::internal(format!("Backup step failed: {e}")))?;
+    drop(backup);
+    drop(src_conn);
+    let _ = std::fs::remove_file(&staging_path);
 
     Ok(Json(serde_json::json!({
         "ok": true,

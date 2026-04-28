@@ -1,11 +1,11 @@
-use rusqlite::Connection;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
 
 // ── App state ────────────────────────────────────────────────────────────────
 
 pub struct AppState {
-    pub db: Mutex<Connection>,
+    pub db: Pool<SqliteConnectionManager>,
     pub jwt_secret: String,
 }
 

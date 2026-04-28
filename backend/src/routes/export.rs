@@ -1,7 +1,7 @@
-use axum::{extract::State, http::header, response::{IntoResponse, Response}};
+use axum::{extract::{Extension, State}, http::header, response::{IntoResponse, Response}};
 use std::sync::Arc;
 
-use crate::{error::AppError, models::AppState, repositories};
+use crate::{auth::require_admin_or_aom, error::AppError, models::{AppState, Claims}, repositories};
 
 fn field(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') {
@@ -13,8 +13,10 @@ fn field(s: &str) -> String {
 
 pub async fn tickets_csv(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Response, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     let tickets = repositories::list_tickets(&*conn)?;
 
     let mut csv = String::from(
@@ -40,8 +42,10 @@ pub async fn tickets_csv(
 
 pub async fn communications_csv(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Response, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     let comments = repositories::list_all_comments(&*conn)?;
 
     let mut csv = String::from(
@@ -66,8 +70,10 @@ pub async fn communications_csv(
 
 pub async fn sip_master_csv(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Response, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     let schools = repositories::list_schools(&*conn)?;
 
     let mut csv = String::from(

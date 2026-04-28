@@ -12,7 +12,7 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     Json(input): Json<LoginInput>,
 ) -> Result<Json<LoginResponse>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock poisoned"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
 
     let user = repositories::authenticate_user(&conn, &input.username, &input.password)
         .map_err(|e| AppError::unauthorized(e))?;

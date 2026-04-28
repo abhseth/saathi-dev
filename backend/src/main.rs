@@ -1,5 +1,5 @@
 use axum::Router;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -29,7 +29,18 @@ async fn main() {
         }
     }
 
-    let conn = db::open_db(&db_path).expect("Failed to open database");
+    // Open once to run migrations and set WAL mode (must be done before pool)
+    {
+        let _conn = db::open_db(&db_path).expect("Failed to open database");
+    }
+
+    let manager = r2d2_sqlite::SqliteConnectionManager::file(&db_path)
+        .with_init(|c| c.execute_batch("PRAGMA foreign_keys = ON;").map_err(|e| e.into()));
+
+    let pool = r2d2::Pool::builder()
+        .max_size(10)
+        .build(manager)
+        .expect("Failed to create connection pool");
 
     let jwt_secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "dev-secret-change-in-production".to_string());
@@ -39,7 +50,7 @@ async fn main() {
     }
 
     let state = Arc::new(models::AppState {
-        db: Mutex::new(conn),
+        db: pool,
         jwt_secret,
     });
 

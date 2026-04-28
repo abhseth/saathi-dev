@@ -62,3 +62,21 @@ pub fn current_claims(request: &Request) -> Result<&Claims, AppError> {
         .get::<Claims>()
         .ok_or_else(|| AppError::unauthorized("Not authenticated"))
 }
+
+// ── Role check helpers (centralised so every route module can reuse) ─────────
+
+pub fn require_admin(claims: &Claims) -> Result<(), AppError> {
+    if claims.role == "admin" {
+        Ok(())
+    } else {
+        Err(AppError::forbidden("Admin role required"))
+    }
+}
+
+pub fn require_admin_or_aom(claims: &Claims) -> Result<(), AppError> {
+    if claims.role == "admin" || claims.role == "aom" {
+        Ok(())
+    } else {
+        Err(AppError::forbidden("Admin or AOM role required"))
+    }
+}

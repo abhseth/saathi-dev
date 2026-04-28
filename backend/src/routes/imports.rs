@@ -51,7 +51,7 @@ pub async fn import_schools_csv(
     }
 
     let headers: Vec<String> = rows[0].iter().map(|h| normalize_csv_header(h)).collect();
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
 
     let mut imported_count = 0;
     let mut skipped_count = 0;
@@ -160,7 +160,7 @@ pub async fn preview_sip_master_import(
         return Err(AppError::bad_request("SIP master file is empty"));
     }
 
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     let existing_names = existing_school_names(&*conn)?;
     let mut existing_schools: Vec<String> = Vec::new();
     let mut new_school_count = 0;
@@ -219,7 +219,7 @@ pub async fn import_sip_master(
         return Err(AppError::bad_request("SIP master file is empty"));
     }
 
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     let mut existing_names = existing_school_names(&*conn)?;
     let mut imported_count = 0;
     let mut updated_count = 0;

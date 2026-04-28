@@ -5,33 +5,18 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::{error::AppError, models::*, repositories};
+use crate::{auth::{require_admin, require_admin_or_aom}, error::AppError, models::*, repositories};
 
 #[allow(unused_imports)]
 use crate::models::{TimetableSlot, UpsertTimetableSlotInput};
-
-fn require_admin_or_aom(claims: &Claims) -> Result<(), AppError> {
-    if claims.role == "admin" || claims.role == "aom" {
-        Ok(())
-    } else {
-        Err(AppError::forbidden("Admin or AOM role required"))
-    }
-}
-
-fn require_admin(claims: &Claims) -> Result<(), AppError> {
-    if claims.role == "admin" {
-        Ok(())
-    } else {
-        Err(AppError::forbidden("Admin role required"))
-    }
-}
 
 // ── Subjects ─────────────────────────────────────────────────────────────────
 
 pub async fn list_subjects(
     State(state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
 ) -> Result<Json<Vec<Subject>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_subjects(&*conn)?))
 }
 
@@ -41,7 +26,7 @@ pub async fn create_subject(
     Json(input): Json<CreateSubjectInput>,
 ) -> Result<Json<Subject>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::create_subject(&*conn, &input)?))
 }
 
@@ -52,7 +37,7 @@ pub async fn update_subject(
     Json(input): Json<UpdateSubjectInput>,
 ) -> Result<Json<Subject>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_subject(&*conn, &input)?))
 }
 
@@ -62,7 +47,7 @@ pub async fn delete_subject(
     Path(id): Path<i64>,
 ) -> Result<Json<()>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::delete_subject(&*conn, id)?;
     Ok(Json(()))
 }
@@ -74,10 +59,11 @@ pub struct EffectiveSubjectsQuery {
 
 pub async fn list_effective_subjects(
     State(state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
     Path(school_id): Path<i64>,
     Query(q): Query<EffectiveSubjectsQuery>,
 ) -> Result<Json<Vec<EffectiveSubject>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_effective_subjects(
         &*conn, school_id, &q.track,
     )?))
@@ -99,7 +85,7 @@ pub async fn set_school_optional_subject(
     // Note: AOM scope-check (school_id ∈ user_schools) is added when faculty
     // assignments and timetable land. For now, admins or any AOM can toggle —
     // AOM scope enforcement is wired in the next step alongside faculty CRUD.
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::set_school_optional_subject(&*conn, school_id, input.subject_id, input.enabled)?;
     Ok(Json(()))
 }
@@ -114,9 +100,10 @@ pub struct FacultyAssignmentQuery {
 
 pub async fn list_faculty_assignments(
     State(state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
     Query(q): Query<FacultyAssignmentQuery>,
 ) -> Result<Json<Vec<FacultyAssignment>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_faculty_assignments(
         &*conn,
         q.school_id,
@@ -130,7 +117,7 @@ pub async fn create_faculty_assignment(
     Json(input): Json<CreateFacultyAssignmentInput>,
 ) -> Result<Json<FacultyAssignment>, AppError> {
     require_admin_or_aom(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::create_faculty_assignment(&*conn, &input)?))
 }
 
@@ -140,7 +127,7 @@ pub async fn delete_faculty_assignment(
     Path(id): Path<i64>,
 ) -> Result<Json<()>, AppError> {
     require_admin_or_aom(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::delete_faculty_assignment(&*conn, id)?;
     Ok(Json(()))
 }
@@ -157,9 +144,10 @@ pub struct TimetableSlotQuery {
 
 pub async fn list_timetable_slots(
     State(state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
     Query(q): Query<TimetableSlotQuery>,
 ) -> Result<Json<Vec<TimetableSlot>>, AppError> {
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_timetable_slots(
         &*conn,
         q.school_id,
@@ -175,7 +163,7 @@ pub async fn upsert_timetable_slot(
     Json(input): Json<UpsertTimetableSlotInput>,
 ) -> Result<Json<TimetableSlot>, AppError> {
     require_admin_or_aom(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::upsert_timetable_slot(&*conn, &input)?))
 }
 
@@ -185,7 +173,7 @@ pub async fn delete_timetable_slot(
     Path(id): Path<i64>,
 ) -> Result<Json<()>, AppError> {
     require_admin_or_aom(&claims)?;
-    let conn = state.db.lock().map_err(|_| AppError::internal("DB lock"))?;
+    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::delete_timetable_slot(&*conn, id)?;
     Ok(Json(()))
 }
