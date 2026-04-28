@@ -79,7 +79,7 @@ Migrations must preserve every existing row. Never use `DROP COLUMN` or `DROP TA
 
    Walk the user through these or do them inline if `$ARGUMENTS` is explicit enough.
 
-5. **Build:** `cd /home/abhi/ticketing-web/backend && cargo build` — surface any errors.
+5. **Build:** `cd /home/abhi/saathi-dev/backend && cargo build` — surface any errors.
 
 6. **Refuse data-loss patterns.** If asked to DROP COLUMN, refuse and propose soft-rename. If asked to wipe a table, refuse and propose backup-via-snapshot-endpoint first.
 

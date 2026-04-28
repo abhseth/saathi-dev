@@ -96,8 +96,8 @@ For an entity `<Entity>` with fields:
 5. **Wire api.ts mappings** — add the four entries to the existing dispatch table.
 
 6. **Build both:**
-   - `cd /home/abhi/ticketing-web/backend && cargo build` — must compile
-   - `cd /home/abhi/ticketing-web/frontend && npm run build` — must compile
+   - `cd /home/abhi/saathi-dev/backend && cargo build` — must compile
+   - `cd /home/abhi/saathi-dev/frontend && npm run build` — must compile
 
 7. **Stop short of UI polish.** Output the location of the stub component + the next thing the user typically wants (mounting it in `App.tsx` admin view chain + sidebar/more-menu nav entry).
 

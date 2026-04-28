@@ -1,9 +1,16 @@
 #!/bin/bash
 set -e
 
-# Build locally → upload dist/ as a static site to the "dist" Vercel project.
-# The project link is stashed at .vercel-link/ (outside dist/) because vite
-# clears dist/ on every build.
+# ⚠️  WARNING: This script was copied from the production project.
+#    It points to the LIVE production Vercel project (saathi-pink.vercel.app).
+#    DO NOT RUN unless you have created a NEW Vercel project and updated
+#    .vercel-link/project.json to point to it.
+#
+#    To create a new project:
+#      cd frontend && npx vercel@latest
+#      cp .vercel/project.json ../.vercel-link/project.json
+#
+#    Then update the alias at the bottom of this script.
 
 REPO=$(cd "$(dirname "$0")" && pwd)
 cd "$REPO/frontend"
@@ -27,6 +34,7 @@ echo ""
 echo "Deployed: $DEPLOY_URL"
 echo ""
 echo "Aliasing saathi-pink.vercel.app → this deployment..."
+# TODO: Change this alias to your NEW dev project's URL
 npx vercel@latest alias set "$DEPLOY_URL" saathi-pink.vercel.app --scope abhseth-8942s-projects || {
   echo ""
   echo "Alias did not auto-apply. Run manually:"

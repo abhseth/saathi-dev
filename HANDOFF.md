@@ -1,6 +1,8 @@
-# SAATHI — Handoff
+# SAATHI — Handoff (DEV COPY)
 
 Last updated: 2026-04-28
+
+> ⚠️ **This is the development copy** at `/home/abhi/saathi-dev`. Do NOT deploy over the production site. The original production project lives at `/home/abhi/ticketing-web`.
 
 ## What this is
 
@@ -8,13 +10,15 @@ A school operations web app — ticketing + master data + (in progress) faculty 
 
 Originated as a web rewrite of `/home/abhi/ticketing-desktop` (Tauri). The desktop app remains the historical reference for some helpers (CSV parsing patterns, original schema). Don't modify it.
 
-## Live deployments
+## Live deployments (PRODUCTION — do not touch)
 
 | Layer | URL | Platform |
 |---|---|---|
 | Frontend | https://saathi-pink.vercel.app | Vercel ("dist" project under `abhseth-8942s-projects`) |
 | Backend  | https://saathi-production-aa2a.up.railway.app | Railway |
 | Default login | `admin` / `admin123` | (change before public use) |
+
+**This dev copy has no deployment configured.** If you want to deploy it, create a new Railway project and a new Vercel project — never reuse the production ones above.
 
 Deploy quirks are documented in memory at `~/.claude/projects/-home-abhi-ticketing-desktop/memory/project_web_deploy.md`. Read that before deploying.
 
@@ -27,7 +31,7 @@ Deploy quirks are documented in memory at `~/.claude/projects/-home-abhi-ticketi
 ## Repository layout
 
 ```
-/home/abhi/ticketing-web/
+/home/abhi/saathi-dev/
 ├── .claude/skills/
 │   ├── migrate/SKILL.md          /migrate — generates a SQLite migration following project rules
 │   └── scaffold-crud/SKILL.md    /scaffold-crud — full-stack CRUD boilerplate generator
@@ -116,7 +120,7 @@ Step 6 is **AOM scope-check middleware** — currently AOMs see all data; this n
 ### Deploy
 
 - Frontend deploys are pre-built locally and uploaded to Vercel (project name "dist"). Don't try to redirect to a project named "saathi" — that one's broken; abandoned. See `project_web_deploy.md`.
-- Backend: `cd /home/abhi/ticketing-web && railway up`. Railway runs migrations on container boot. The CLI may "time out" after upload; that's normal — build continues in cloud.
+- Backend: `# cd /home/abhi/saathi-dev && railway up   # ONLY if you created a NEW Railway project`. Railway runs migrations on container boot. The CLI may "time out" after upload; that's normal — build continues in cloud.
 - The `git config --global user.email` must contain `@`. Railway's deploy-protection rejects malformed emails even on non-git deploys.
 
 ### Skills
@@ -144,12 +148,12 @@ Two project-local skills under `.claude/skills/`:
 
 ```bash
 # Backend
-cd /home/abhi/ticketing-web/backend
+cd /home/abhi/saathi-dev/backend
 cargo run
 # Listens on :3000 by default; reads DATABASE_PATH or creates ./tickets.sqlite3
 
 # Frontend (separate terminal)
-cd /home/abhi/ticketing-web/frontend
+cd /home/abhi/saathi-dev/frontend
 npm install
 npm run dev
 # Opens http://localhost:5173 ; vite proxies /api → :3000
@@ -163,8 +167,8 @@ npm run dev
 cd /home/abhi/ticketing-web && railway up
 
 # Frontend
-bash /home/abhi/ticketing-web/deploy-frontend.sh
-# (Wraps build + dist link + vercel deploy + saathi-pink alias)
+# bash /home/abhi/saathi-dev/deploy-frontend.sh   # ONLY if you created a NEW Vercel project
+# (Wraps build + dist link + vercel deploy — update alias for your new project)
 ```
 
 ## Backup / restore
@@ -174,11 +178,11 @@ The DB is on Railway. Two paths:
 1. **Snapshot endpoint** — admin-only, streams a consistent SQLite snapshot:
    ```bash
    TOKEN=$(curl -s -X POST .../api/auth/login -d '{"username":"admin","password":"..."}' | jq -r .token)
-   curl -OJ -H "Authorization: Bearer $TOKEN" https://saathi-pink.vercel.app/api/admin/db-snapshot
+   # curl -OJ -H "Authorization: Bearer $TOKEN" https://saathi-pink.vercel.app/api/admin/db-snapshot
    ```
 2. **Restore endpoint** — uploads a SQLite file and atomically swaps. See `routes/admin.rs::db_restore`.
 
-There's a versioned source backup at `/home/abhi/saathi-backups/saathi-v1.0.0-pre-faculty-app-2026-04-28.tar.gz` (with `.RESTORE.md` alongside) — pre-faculty-app baseline, useful as a known-good rewind point.
+There's a versioned source backup at `/home/abhi/saathi-backups/saathi-v1.0.0-pre-faculty-app-2026-04-28.tar.gz` (with `.RESTORE.md` alongside) — pre-faculty-app baseline, useful as a known-good rewind point. (This dev copy was forked from the current state, which already includes Phase 1 steps 1-5.)
 
 ## Sample data + CSV templates
 
@@ -200,8 +204,8 @@ Located at `~/.claude/projects/-home-abhi-ticketing-desktop/memory/`:
 ## Resume prompt
 
 ```
-Project: /home/abhi/ticketing-web
-Live: https://saathi-pink.vercel.app
+Project: /home/abhi/saathi-dev (DEV COPY)
+Production: https://saathi-pink.vercel.app
 
 Read HANDOFF.md (this file) and the memory files in order before writing any code.
 Most recent work: faculty app Phase 1, Steps 1-5 done.

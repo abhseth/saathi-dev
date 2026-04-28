@@ -4,6 +4,7 @@
     {
       "src": "/api/(.*)",
       "dest": "https://saathi-production-aa2a.up.railway.app/api/$1"
+      /* TODO: change to your dev backend URL, or leave empty for local dev */
     },
     { "handle": "filesystem" },
     {
