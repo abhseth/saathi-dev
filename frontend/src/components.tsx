@@ -531,6 +531,7 @@ type MobileMoreMenuProps = {
   onTemplatesClick: () => void;
   onUsersClick: () => void;
   onFacultyAssignmentsClick: () => void;
+  onSubjectsClick: () => void;
   onTimetableClick: () => void;
   onLogout: () => void;
 };
@@ -552,6 +553,7 @@ export function MobileMoreMenu({
   onTemplatesClick,
   onUsersClick,
   onFacultyAssignmentsClick,
+  onSubjectsClick,
   onTimetableClick,
   onLogout,
 }: MobileMoreMenuProps) {
@@ -582,6 +584,7 @@ export function MobileMoreMenu({
           <>
             <div className="mobile-more-section">Faculty</div>
             <button className="mobile-more-item" onClick={() => handle(onFacultyAssignmentsClick)}>Faculty Assignments</button>
+            <button className="mobile-more-item" onClick={() => handle(onSubjectsClick)}>Subjects</button>
             <button className="mobile-more-item" onClick={() => handle(onTimetableClick)}>Timetable</button>
           </>
         )}
@@ -624,6 +627,7 @@ type SidebarProps = {
   onSyncClick: () => void;
   onUsersClick: () => void;
   onFacultyAssignmentsClick: () => void;
+  onSubjectsClick: () => void;
   onTimetableClick: () => void;
 };
 
@@ -649,6 +653,7 @@ export function Sidebar({
   onSyncClick,
   onUsersClick,
   onFacultyAssignmentsClick,
+  onSubjectsClick,
   onTimetableClick,
 }: SidebarProps) {
   const isAdmin = currentUserRole === "admin";
@@ -743,6 +748,9 @@ export function Sidebar({
             <>
               <button className="nav-item" onClick={onFacultyAssignmentsClick}>
                 Faculty Assignments
+              </button>
+              <button className="nav-item" onClick={onSubjectsClick}>
+                Subjects
               </button>
               <button className="nav-item" onClick={onTimetableClick}>
                 Timetable
@@ -2794,6 +2802,132 @@ export function TimetablePanel({
             </section>
           </div>
         ) : null}
+      </section>
+    </div>
+  );
+}
+
+type SubjectsPanelProps = {
+  schools: School[];
+  subjects: Subject[];
+  onClose: () => void;
+  onLoadEffective: (schoolId: number, track: string) => Promise<EffectiveSubject[]>;
+  onToggleOptional: (schoolId: number, subjectId: number, enabled: boolean) => Promise<void>;
+};
+
+export function SubjectsPanel({
+  schools,
+  subjects,
+  onClose,
+  onLoadEffective,
+  onToggleOptional,
+}: SubjectsPanelProps) {
+  const activeSchools = React.useMemo(
+    () => schools.filter((s) => !s.is_dropped).sort((a, b) => a.name.localeCompare(b.name)),
+    [schools],
+  );
+
+  const [selectedSchoolId, setSelectedSchoolId] = React.useState<number | "">("");
+  const [effective, setEffective] = React.useState<EffectiveSubject[]>([]);
+  const [loading, setLoading] = React.useState(false);
+
+  const optionalSubjects = React.useMemo(
+    () => subjects.filter((s) => s.track === "Foundation" && !s.is_default),
+    [subjects],
+  );
+
+  React.useEffect(() => {
+    if (!selectedSchoolId) {
+      setEffective([]);
+      return;
+    }
+    setLoading(true);
+    onLoadEffective(selectedSchoolId, "Foundation")
+      .then(setEffective)
+      .finally(() => setLoading(false));
+  }, [selectedSchoolId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleToggle(subjectId: number, enabled: boolean) {
+    if (!selectedSchoolId) return;
+    await onToggleOptional(selectedSchoolId, subjectId, enabled);
+    const updated = await onLoadEffective(selectedSchoolId, "Foundation");
+    setEffective(updated);
+  }
+
+  const selectedSchool = activeSchools.find((s) => s.id === selectedSchoolId);
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="ticket-modal directory-modal" aria-label="Subjects configuration">
+        <header>
+          <div>
+            <h2>Subjects</h2>
+            <p>Manage optional subjects (English / SST) per Foundation school.</p>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </header>
+
+        <div className="faculty-assignment-filters">
+          <label>
+            School
+            <select
+              value={selectedSchoolId}
+              onChange={(e) => setSelectedSchoolId(e.target.value ? Number(e.target.value) : "")}
+            >
+              <option value="">Select a school</option>
+              {activeSchools.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {selectedSchool && (
+          <div style={{ padding: "0 1rem" }}>
+            <h3>{selectedSchool.name} — Foundation Track</h3>
+            {loading ? (
+              <p>Loading subjects…</p>
+            ) : (
+              <>
+                <div className="faculty-assignment-list">
+                  <h4>Default Subjects</h4>
+                  {effective
+                    .filter((s) => s.is_default)
+                    .map((s) => (
+                      <div key={s.id} className="faculty-assignment-row">
+                        <span>{s.name}</span>
+                        <span className="badge">Default</span>
+                      </div>
+                    ))}
+                </div>
+                <div className="faculty-assignment-list">
+                  <h4>Optional Subjects</h4>
+                  {optionalSubjects.length === 0 ? (
+                    <p className="empty-state">No optional subjects configured.</p>
+                  ) : (
+                    optionalSubjects.map((subj) => {
+                      const eff = effective.find((e) => e.id === subj.id);
+                      const enabled = eff?.is_offered ?? false;
+                      return (
+                        <div key={subj.id} className="faculty-assignment-row">
+                          <span>{subj.name}</span>
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={(e) => handleToggle(subj.id, e.target.checked)}
+                            />
+                            <span>{enabled ? "Offered" : "Not offered"}</span>
+                          </label>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

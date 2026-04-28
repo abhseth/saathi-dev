@@ -10,6 +10,7 @@ import {
   DirectoryPanel,
   DroppedSchoolsPanel,
   FacultyAssignmentsPanel,
+  SubjectsPanel,
   TimetablePanel,
   EscalationPolicyPanel,
   LoginScreen,
@@ -47,6 +48,7 @@ import type {
   Filter,
   ImportSyncSnapshotResult,
   CreateFacultyAssignmentDraft,
+  EffectiveSubject,
   FacultyAssignment,
   LectureModel,
   Subject,
@@ -132,6 +134,7 @@ type AdminView =
   | "sync"
   | "faculty-assignments"
   | "timetable"
+  | "subjects"
   | null;
 
 export function App() {
@@ -196,6 +199,7 @@ export function App() {
   const [subjects, setSubjects] = React.useState<Subject[]>([]);
   const [facultyAssignments, setFacultyAssignments] = React.useState<FacultyAssignment[]>([]);
   const [timetableSlots, setTimetableSlots] = React.useState<TimetableSlot[]>([]);
+  const [effectiveSubjects, setEffectiveSubjects] = React.useState<EffectiveSubject[]>([]);
   const [programDashboard, setProgramDashboard] =
     React.useState<SchoolProgramDashboard | null>(null);
   const [students, setStudents] = React.useState<Student[]>([]);
@@ -512,6 +516,22 @@ export function App() {
   async function loadSubjects() {
     try {
       setSubjects(await api<Subject[]>("list_subjects"));
+      setError("");
+    } catch (caught) {
+      setError(String(caught));
+    }
+  }
+
+  async function loadEffectiveSubjects(schoolId: number, track: string) {
+    return api<EffectiveSubject[]>("list_effective_subjects", { schoolId, track });
+  }
+
+  async function toggleOptionalSubject(schoolId: number, subjectId: number, enabled: boolean) {
+    try {
+      await api("set_school_optional_subject", {
+        schoolId,
+        input: { subject_id: subjectId, enabled },
+      });
       setError("");
     } catch (caught) {
       setError(String(caught));
@@ -1535,6 +1555,14 @@ export function App() {
         onUpsert={upsertTimetableSlot}
         onDelete={deleteTimetableSlot}
       />
+    ) : adminView === "subjects" ? (
+      <SubjectsPanel
+        schools={schools}
+        subjects={subjects}
+        onClose={() => setAdminView(null)}
+        onLoadEffective={loadEffectiveSubjects}
+        onToggleOptional={toggleOptionalSubject}
+      />
     ) : null;
 
   if (!currentUser) {
@@ -1596,6 +1624,10 @@ export function App() {
           void loadFacultyAssignments();
           void loadSubjects();
           setAdminView("faculty-assignments");
+        }}
+        onSubjectsClick={() => {
+          void loadSubjects();
+          setAdminView("subjects");
         }}
         onTimetableClick={() => {
           void loadSubjects();
@@ -1777,6 +1809,11 @@ export function App() {
             void loadFacultyAssignments();
             void loadSubjects();
             setAdminView("faculty-assignments");
+            setShowMobileDetail(false);
+          }}
+          onSubjectsClick={() => {
+            void loadSubjects();
+            setAdminView("subjects");
             setShowMobileDetail(false);
           }}
           onTimetableClick={() => {
