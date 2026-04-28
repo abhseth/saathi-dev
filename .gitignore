@@ -6,3 +6,5 @@ secrets.txt
 *.sqlite3
 .vercel
 .env*.local
+*.sqlite3-shm
+*.sqlite3-wal

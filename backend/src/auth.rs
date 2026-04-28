@@ -95,10 +95,14 @@ pub fn enforce_school_scope(claims: &Claims, school_id: i64) -> Result<(), AppEr
     Err(AppError::forbidden("Access to this school is denied"))
 }
 
-/// Returns `None` for admin (unfiltered) or `Some(&school_ids)` for scoped roles.
+/// Returns `None` for admin/agent/viewer (unfiltered) or `Some(&school_ids)`
+/// for scoped roles (aom, faculty, principal). If a scoped role has no
+/// schools assigned, returns `Some(&[-1])` so queries return zero rows.
 pub fn scope_filter<'a>(claims: &'a Claims) -> Option<&'a [i64]> {
-    if claims.role == "admin" {
+    if claims.role == "admin" || claims.role == "viewer" || claims.role == "agent" {
         None
+    } else if claims.school_ids.is_empty() {
+        Some(&[-1]) // impossible id → no rows
     } else {
         Some(&claims.school_ids)
     }

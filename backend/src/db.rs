@@ -104,6 +104,8 @@ pub fn initialize_db(conn: &Connection) -> Result<(), String> {
         seed_tickets(conn)?;
     }
 
+    seed_test_users(conn)?;
+
     Ok(())
 }
 
@@ -787,6 +789,38 @@ fn seed_tickets(conn: &Connection) -> Result<(), String> {
         conn.execute(
             "INSERT INTO tickets (title, description, requester, assignee, status, priority, queue, school_id, school_name, student_name, grade_level, program_track, issue_category, sla_due_at, escalation_status, escalated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT id FROM schools WHERE name = ?8 LIMIT 1), ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![title, description, requester, assignee, status, priority, queue, school_name, student_name, grade_level, program_track, issue_category, sla_due_at, escalation_status, escalated_at],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn seed_test_users(conn: &Connection) -> Result<(), String> {
+    let test_users = [
+        ("aom1", "AOM One", "aom", "aom123"),
+        ("faculty1", "Faculty One", "faculty", "faculty123"),
+        ("viewer1", "Viewer One", "viewer", "viewer123"),
+    ];
+    for (username, display_name, role, password) in test_users {
+        let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST)
+            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO users (username, display_name, role, password_hash) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![username, display_name, role, hash],
+        ).map_err(|e| e.to_string())?;
+    }
+    // Assign aom1 → Green Valley Public School (id=1)
+    // Assign faculty1 → North City Senior Secondary (id=2)
+    let mappings = [
+        ("aom1", 1i64),
+        ("faculty1", 2i64),
+    ];
+    for (username, school_id) in mappings {
+        let user_id: i64 = conn
+            .query_row("SELECT id FROM users WHERE username = ?1", rusqlite::params![username], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO user_schools (user_id, school_id) VALUES (?1, ?2)",
+            rusqlite::params![user_id, school_id],
         ).map_err(|e| e.to_string())?;
     }
     Ok(())
