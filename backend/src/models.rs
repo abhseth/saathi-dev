@@ -17,6 +17,7 @@ pub struct Claims {
     pub username: String,
     pub display_name: String,
     pub role: String,
+    pub school_ids: Vec<i64>,
     pub exp: usize,        // unix timestamp
 }
 
@@ -31,6 +32,7 @@ pub struct CurrentUser {
     pub username: String,
     pub display_name: String,
     pub role: String,
+    pub school_ids: Vec<i64>,
 }
 
 #[derive(Debug, Serialize)]

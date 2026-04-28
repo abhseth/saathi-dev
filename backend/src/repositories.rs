@@ -2650,7 +2650,8 @@ pub fn authenticate_user(
                 params![id],
             )
             .map_err(|error| error.to_string())?;
-            Ok(SessionUser { id, username: uname, display_name, role })
+            let school_ids = list_user_schools(conn, id)?;
+            Ok(SessionUser { id, username: uname, display_name, role, school_ids })
         }
     }
 }

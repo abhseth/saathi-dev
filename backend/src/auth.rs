@@ -17,6 +17,7 @@ pub fn issue_token(state: &AppState, user: &CurrentUser) -> Result<String, AppEr
         username: user.username.clone(),
         display_name: user.display_name.clone(),
         role: user.role.clone(),
+        school_ids: user.school_ids.clone(),
         exp,
     };
     encode(

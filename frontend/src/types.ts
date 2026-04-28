@@ -5,6 +5,7 @@ export type CurrentUser = {
   username: string;
   display_name: string;
   role: UserRole;
+  school_ids: number[];
 };
 
 export type AppUser = {

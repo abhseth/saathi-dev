@@ -22,6 +22,7 @@ pub async fn login(
         username: user.username,
         display_name: user.display_name,
         role: user.role,
+        school_ids: user.school_ids,
     };
 
     let token = issue_token(&state, &current)?;
@@ -37,5 +38,6 @@ pub async fn me(
         username: claims.username,
         display_name: claims.display_name,
         role: claims.role,
+        school_ids: claims.school_ids,
     })
 }

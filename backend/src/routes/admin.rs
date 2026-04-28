@@ -258,7 +258,7 @@ pub async fn db_restore(
     let src_conn = rusqlite::Connection::open(&staging_path)
         .map_err(|e| AppError::bad_request(format!("Cannot open staged DB for restore: {e}")))?;
 
-    let mut backup = rusqlite::backup::Backup::new(&src_conn, &mut dst_conn)
+    let backup = rusqlite::backup::Backup::new(&src_conn, &mut dst_conn)
         .map_err(|e| AppError::internal(format!("Backup init failed: {e}")))?;
     backup.step(-1)
         .map_err(|e| AppError::internal(format!("Backup step failed: {e}")))?;
