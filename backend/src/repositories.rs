@@ -92,21 +92,24 @@ pub fn attachment_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TicketAt
     })
 }
 
-pub fn list_tickets(conn: &Connection) -> Result<Vec<Ticket>, String> {
-    let mut stmt = conn
-        .prepare(
-            "
-            SELECT id, title, description, requester, assignee, status, priority,
-                   queue, school_id,
-                   school_name, student_name, grade_level, program_track, issue_category,
-                   sla_due_at, escalation_status, escalated_at,
-                   created_at, updated_at
-            FROM tickets
-            ORDER BY datetime(updated_at) DESC, id DESC
-            ",
-        )
-        .map_err(|error| error.to_string())?;
+pub fn list_tickets(conn: &Connection, scope_school_ids: Option<&[i64]>) -> Result<Vec<Ticket>, String> {
+    let mut sql = String::from(
+        "SELECT id, title, description, requester, assignee, status, priority,
+                queue, school_id,
+                school_name, student_name, grade_level, program_track, issue_category,
+                sla_due_at, escalation_status, escalated_at,
+                created_at, updated_at
+         FROM tickets",
+    );
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" WHERE school_id IN ({list})"));
+        }
+    }
+    sql.push_str(" ORDER BY datetime(updated_at) DESC, id DESC");
 
+    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = stmt
         .query_map([], ticket_from_row)
         .map_err(|error| error.to_string())?;
@@ -246,7 +249,7 @@ pub fn get_student_timeline(
     validate_nonempty("School", school_name)?;
     validate_nonempty("Student", student_name)?;
 
-    let tickets = list_tickets(conn)?
+    let tickets = list_tickets(conn, None)?
         .into_iter()
         .filter(|ticket| {
             ticket.school_name == school_name.trim() && ticket.student_name == student_name.trim()
@@ -1052,31 +1055,34 @@ pub fn update_communication_template(
     }
 }
 
-pub fn list_schools(conn: &Connection) -> Result<Vec<School>, String> {
-    let mut stmt = conn
-        .prepare(
-            "
-            SELECT schools.id, schools.name, schools.region_id, COALESCE(regions.name, ''),
-                   schools.program_model, schools.distance_classification,
-                   sip_academic_owner_role, sip_academic_owner_name,
-                   sip_academic_owner_mobile, sip_academic_owner_email,
-                   center_head_name, center_head_mobile, center_head_email,
-                   principal_name, principal_mobile, principal_email,
-                   school_spoc_name, school_spoc_mobile, school_spoc_email,
-                   central_academic_spoc_name, central_academic_spoc_mobile,
-                   central_academic_spoc_email, central_business_spoc_name,
-                   central_business_spoc_mobile, central_business_spoc_email,
-                   bh_name, bh_mobile, bh_email, aom_name, aom_mobile, aom_email,
-                   mapped_vp_center,
-                   is_dropped, dropped_at, dropped_reason, schools.created_at
-            FROM schools
-            LEFT JOIN regions ON regions.id = schools.region_id
-            WHERE is_dropped = 0
-            ORDER BY schools.name
-            ",
-        )
-        .map_err(|error| error.to_string())?;
+pub fn list_schools(conn: &Connection, scope_school_ids: Option<&[i64]>) -> Result<Vec<School>, String> {
+    let mut sql = String::from(
+        "SELECT schools.id, schools.name, schools.region_id, COALESCE(regions.name, ''),
+                schools.program_model, schools.distance_classification,
+                sip_academic_owner_role, sip_academic_owner_name,
+                sip_academic_owner_mobile, sip_academic_owner_email,
+                center_head_name, center_head_mobile, center_head_email,
+                principal_name, principal_mobile, principal_email,
+                school_spoc_name, school_spoc_mobile, school_spoc_email,
+                central_academic_spoc_name, central_academic_spoc_mobile,
+                central_academic_spoc_email, central_business_spoc_name,
+                central_business_spoc_mobile, central_business_spoc_email,
+                bh_name, bh_mobile, bh_email, aom_name, aom_mobile, aom_email,
+                mapped_vp_center,
+                is_dropped, dropped_at, dropped_reason, schools.created_at
+         FROM schools
+         LEFT JOIN regions ON regions.id = schools.region_id
+         WHERE is_dropped = 0",
+    );
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND schools.id IN ({list})"));
+        }
+    }
+    sql.push_str(" ORDER BY schools.name");
 
+    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = stmt
         .query_map([], school_from_row)
         .map_err(|error| error.to_string())?;
@@ -1085,31 +1091,34 @@ pub fn list_schools(conn: &Connection) -> Result<Vec<School>, String> {
         .map_err(|error| error.to_string())
 }
 
-pub fn list_dropped_schools(conn: &Connection) -> Result<Vec<School>, String> {
-    let mut stmt = conn
-        .prepare(
-            "
-            SELECT schools.id, schools.name, schools.region_id, COALESCE(regions.name, ''),
-                   schools.program_model, schools.distance_classification,
-                   sip_academic_owner_role, sip_academic_owner_name,
-                   sip_academic_owner_mobile, sip_academic_owner_email,
-                   center_head_name, center_head_mobile, center_head_email,
-                   principal_name, principal_mobile, principal_email,
-                   school_spoc_name, school_spoc_mobile, school_spoc_email,
-                   central_academic_spoc_name, central_academic_spoc_mobile,
-                   central_academic_spoc_email, central_business_spoc_name,
-                   central_business_spoc_mobile, central_business_spoc_email,
-                   bh_name, bh_mobile, bh_email, aom_name, aom_mobile, aom_email,
-                   mapped_vp_center,
-                   is_dropped, dropped_at, dropped_reason, schools.created_at
-            FROM schools
-            LEFT JOIN regions ON regions.id = schools.region_id
-            WHERE is_dropped = 1
-            ORDER BY datetime(dropped_at) DESC, schools.name
-            ",
-        )
-        .map_err(|error| error.to_string())?;
+pub fn list_dropped_schools(conn: &Connection, scope_school_ids: Option<&[i64]>) -> Result<Vec<School>, String> {
+    let mut sql = String::from(
+        "SELECT schools.id, schools.name, schools.region_id, COALESCE(regions.name, ''),
+                schools.program_model, schools.distance_classification,
+                sip_academic_owner_role, sip_academic_owner_name,
+                sip_academic_owner_mobile, sip_academic_owner_email,
+                center_head_name, center_head_mobile, center_head_email,
+                principal_name, principal_mobile, principal_email,
+                school_spoc_name, school_spoc_mobile, school_spoc_email,
+                central_academic_spoc_name, central_academic_spoc_mobile,
+                central_academic_spoc_email, central_business_spoc_name,
+                central_business_spoc_mobile, central_business_spoc_email,
+                bh_name, bh_mobile, bh_email, aom_name, aom_mobile, aom_email,
+                mapped_vp_center,
+                is_dropped, dropped_at, dropped_reason, schools.created_at
+         FROM schools
+         LEFT JOIN regions ON regions.id = schools.region_id
+         WHERE is_dropped = 1",
+    );
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND schools.id IN ({list})"));
+        }
+    }
+    sql.push_str(" ORDER BY datetime(dropped_at) DESC, schools.name");
 
+    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = stmt
         .query_map([], school_from_row)
         .map_err(|error| error.to_string())?;
@@ -1244,43 +1253,36 @@ pub fn create_school(conn: &Connection, input: &CreateSchoolInput, actor: &str) 
     Ok(school)
 }
 
-pub fn list_students(conn: &Connection, school_id: Option<i64>) -> Result<Vec<Student>, String> {
-    let (sql, params_value): (&str, Vec<i64>) = if let Some(id) = school_id {
-        (
-            "
-            SELECT students.id, students.school_id, schools.name, students.name,
-                   students.grade_level, students.program_track, students.track,
-                   students.created_at
-            FROM students
-            JOIN schools ON schools.id = students.school_id
-            WHERE students.school_id = ?1 AND schools.is_dropped = 0
-            ORDER BY schools.name, students.name
-            ",
-            vec![id],
-        )
-    } else {
-        (
-            "
-            SELECT students.id, students.school_id, schools.name, students.name,
-                   students.grade_level, students.program_track, students.track,
-                   students.created_at
-            FROM students
-            JOIN schools ON schools.id = students.school_id
-            WHERE schools.is_dropped = 0
-            ORDER BY schools.name, students.name
-            ",
-            vec![],
-        )
-    };
+pub fn list_students(
+    conn: &Connection,
+    school_id: Option<i64>,
+    scope_school_ids: Option<&[i64]>,
+) -> Result<Vec<Student>, String> {
+    let mut sql = String::from(
+        "SELECT students.id, students.school_id, schools.name, students.name,
+                students.grade_level, students.program_track, students.track,
+                students.created_at
+         FROM students
+         JOIN schools ON schools.id = students.school_id
+         WHERE schools.is_dropped = 0",
+    );
+    let mut p: Vec<rusqlite::types::Value> = Vec::new();
+    if let Some(id) = school_id {
+        sql.push_str(" AND students.school_id = ?");
+        p.push(id.into());
+    }
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND students.school_id IN ({list})"));
+        }
+    }
+    sql.push_str(" ORDER BY schools.name, students.name");
 
-    let mut stmt = conn.prepare(sql).map_err(|error| error.to_string())?;
-    let rows = if let Some(id) = params_value.first() {
-        stmt.query_map(params![id], student_from_row)
-            .map_err(|error| error.to_string())?
-    } else {
-        stmt.query_map([], student_from_row)
-            .map_err(|error| error.to_string())?
-    };
+    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(p.iter()), student_from_row)
+        .map_err(|error| error.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())
@@ -1644,55 +1646,39 @@ pub fn create_lecture_model(
 pub fn list_school_class_plans(
     conn: &Connection,
     school_id: Option<i64>,
+    scope_school_ids: Option<&[i64]>,
 ) -> Result<Vec<SchoolClassPlan>, String> {
-    let (sql, params_value): (&str, Vec<i64>) = if let Some(id) = school_id {
-        (
-            "
-            SELECT school_class_plans.id, school_class_plans.school_id, schools.name,
-                   school_class_plans.grade_level, school_class_plans.track,
-                   school_class_plans.lecture_model_id,
-                   lecture_models.name, lecture_models.days_per_week, lecture_models.lectures_per_day,
-                   school_class_plans.batch_pattern, school_class_plans.aop_admissions,
-                   school_class_plans.registrations, school_class_plans.actual_admissions,
-                   school_class_plans.updated_at
-            FROM school_class_plans
-            JOIN schools ON schools.id = school_class_plans.school_id
-            JOIN lecture_models ON lecture_models.id = school_class_plans.lecture_model_id
-            WHERE school_class_plans.school_id = ?1 AND schools.is_dropped = 0
-            ORDER BY schools.name, school_class_plans.grade_level
-            ",
-            vec![id],
-        )
-    } else {
-        (
-            "
-            SELECT school_class_plans.id, school_class_plans.school_id, schools.name,
-                   school_class_plans.grade_level, school_class_plans.track,
-                   school_class_plans.lecture_model_id,
-                   lecture_models.name, lecture_models.days_per_week, lecture_models.lectures_per_day,
-                   school_class_plans.batch_pattern, school_class_plans.aop_admissions,
-                   school_class_plans.registrations, school_class_plans.actual_admissions,
-                   school_class_plans.updated_at
-            FROM school_class_plans
-            JOIN schools ON schools.id = school_class_plans.school_id
-            JOIN lecture_models ON lecture_models.id = school_class_plans.lecture_model_id
-            WHERE schools.is_dropped = 0
-            ORDER BY schools.name, school_class_plans.grade_level
-            ",
-            Vec::new(),
-        )
-    };
+    let mut sql = String::from(
+        "SELECT school_class_plans.id, school_class_plans.school_id, schools.name,
+                school_class_plans.grade_level, school_class_plans.track,
+                school_class_plans.lecture_model_id,
+                lecture_models.name, lecture_models.days_per_week, lecture_models.lectures_per_day,
+                school_class_plans.batch_pattern, school_class_plans.aop_admissions,
+                school_class_plans.registrations, school_class_plans.actual_admissions,
+                school_class_plans.updated_at
+         FROM school_class_plans
+         JOIN schools ON schools.id = school_class_plans.school_id
+         JOIN lecture_models ON lecture_models.id = school_class_plans.lecture_model_id
+         WHERE schools.is_dropped = 0",
+    );
+    let mut p: Vec<rusqlite::types::Value> = Vec::new();
+    if let Some(id) = school_id {
+        sql.push_str(" AND school_class_plans.school_id = ?");
+        p.push(id.into());
+    }
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND school_class_plans.school_id IN ({list})"));
+        }
+    }
+    sql.push_str(" ORDER BY schools.name, school_class_plans.grade_level");
 
-    let mut stmt = conn.prepare(sql).map_err(|error| error.to_string())?;
-    let rows = if params_value.is_empty() {
-        stmt.query_map([], school_class_plan_from_row)
-            .map_err(|error| error.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-    } else {
-        stmt.query_map(params![params_value[0]], school_class_plan_from_row)
-            .map_err(|error| error.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-    };
+    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(p.iter()), school_class_plan_from_row)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>();
 
     rows.map_err(|error| error.to_string())
 }
@@ -1768,7 +1754,7 @@ pub fn upsert_school_class_plan(
 }
 
 pub fn get_school_program_dashboard(conn: &Connection) -> Result<SchoolProgramDashboard, String> {
-    let plans = list_school_class_plans(conn, None)?;
+    let plans = list_school_class_plans(conn, None, None)?;
     let total_schools = count_active_schools(conn)?;
     let schools_with_class_plans = plans
         .iter()
@@ -2940,27 +2926,33 @@ pub fn list_faculty_assignments(
     conn: &Connection,
     school_id: Option<i64>,
     faculty_user_id: Option<i64>,
+    scope_school_ids: Option<&[i64]>,
 ) -> Result<Vec<FacultyAssignment>, String> {
-    let base = "
-        SELECT fa.id, fa.faculty_user_id, u.display_name,
-               fa.school_id, s.name,
-               fa.grade_level, fa.track,
-               fa.subject_id, sub.name,
-               fa.created_at
-        FROM faculty_assignments fa
-        JOIN users u    ON u.id   = fa.faculty_user_id
-        JOIN schools s  ON s.id   = fa.school_id
-        JOIN subjects sub ON sub.id = fa.subject_id
-        WHERE 1=1";
-    let mut sql = base.to_string();
-    if school_id.is_some() {
-        sql.push_str(" AND fa.school_id = ?1");
+    let mut sql = String::from(
+        "SELECT fa.id, fa.faculty_user_id, u.display_name,
+                fa.school_id, s.name,
+                fa.grade_level, fa.track,
+                fa.subject_id, sub.name,
+                fa.created_at
+         FROM faculty_assignments fa
+         JOIN users u    ON u.id   = fa.faculty_user_id
+         JOIN schools s  ON s.id   = fa.school_id
+         JOIN subjects sub ON sub.id = fa.subject_id
+         WHERE 1=1",
+    );
+    let mut p: Vec<rusqlite::types::Value> = Vec::new();
+    if let Some(v) = school_id {
+        sql.push_str(" AND fa.school_id = ?");
+        p.push(v.into());
     }
-    if faculty_user_id.is_some() {
-        if school_id.is_some() {
-            sql.push_str(" AND fa.faculty_user_id = ?2");
-        } else {
-            sql.push_str(" AND fa.faculty_user_id = ?1");
+    if let Some(v) = faculty_user_id {
+        sql.push_str(" AND fa.faculty_user_id = ?");
+        p.push(v.into());
+    }
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND fa.school_id IN ({list})"));
         }
     }
     sql.push_str(" ORDER BY u.display_name, s.name, fa.grade_level, fa.track, sub.name");
@@ -2981,13 +2973,9 @@ pub fn list_faculty_assignments(
         })
     };
 
-    let rows = match (school_id, faculty_user_id) {
-        (Some(sid), Some(fid)) => stmt.query_map(params![sid, fid], map_row),
-        (Some(sid), None) => stmt.query_map(params![sid], map_row),
-        (None, Some(fid)) => stmt.query_map(params![fid], map_row),
-        (None, None) => stmt.query_map([], map_row),
-    }
-    .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(p.iter()), map_row)
+        .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
@@ -3043,7 +3031,7 @@ pub fn create_faculty_assignment(
     })?;
 
     let id = conn.last_insert_rowid();
-    list_faculty_assignments(conn, None, None)?
+    list_faculty_assignments(conn, None, None, None)?
         .into_iter()
         .find(|a| a.id == id)
         .ok_or_else(|| "Failed to read back the new assignment".to_string())
@@ -3077,19 +3065,19 @@ pub fn list_timetable_slots(
     grade_level: Option<&str>,
     track: Option<&str>,
     batch_pattern: Option<&str>,
+    scope_school_ids: Option<&[i64]>,
 ) -> Result<Vec<TimetableSlot>, String> {
     let mut sql = String::from(
-        "
-        SELECT ts.id, ts.school_id, s.name, ts.grade_level, ts.track, ts.batch_pattern,
-               ts.day_of_week, ts.period,
-               ts.subject_id, sub.name,
-               ts.faculty_user_id, u.display_name,
-               ts.start_time, ts.end_time, ts.updated_at
-        FROM timetable_slots ts
-        JOIN schools  s   ON s.id   = ts.school_id
-        JOIN subjects sub ON sub.id = ts.subject_id
-        LEFT JOIN users u ON u.id   = ts.faculty_user_id
-        WHERE 1=1",
+        "SELECT ts.id, ts.school_id, s.name, ts.grade_level, ts.track, ts.batch_pattern,
+                ts.day_of_week, ts.period,
+                ts.subject_id, sub.name,
+                ts.faculty_user_id, u.display_name,
+                ts.start_time, ts.end_time, ts.updated_at
+         FROM timetable_slots ts
+         JOIN schools  s   ON s.id   = ts.school_id
+         JOIN subjects sub ON sub.id = ts.subject_id
+         LEFT JOIN users u ON u.id   = ts.faculty_user_id
+         WHERE 1=1",
     );
     let mut p: Vec<rusqlite::types::Value> = Vec::new();
     if let Some(v) = school_id {
@@ -3107,6 +3095,12 @@ pub fn list_timetable_slots(
     if let Some(v) = batch_pattern {
         sql.push_str(" AND ts.batch_pattern = ?");
         p.push(v.to_string().into());
+    }
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND ts.school_id IN ({list})"));
+        }
     }
     sql.push_str(" ORDER BY ts.day_of_week, ts.period");
 
@@ -3181,6 +3175,7 @@ pub fn upsert_timetable_slot(
         Some(input.grade_level.trim()),
         Some(input.track.trim()),
         Some(input.batch_pattern.trim()),
+        None,
     )?;
     slots
         .into_iter()

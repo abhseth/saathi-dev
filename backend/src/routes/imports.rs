@@ -279,8 +279,8 @@ fn tabular_values(rows: &[Vec<String>]) -> Vec<HashMap<String, String>> {
 }
 
 fn existing_school_names(conn: &rusqlite::Connection) -> Result<Vec<String>, String> {
-    let mut schools = repositories::list_schools(conn)?;
-    schools.extend(repositories::list_dropped_schools(conn)?);
+    let mut schools = repositories::list_schools(conn, None)?;
+    schools.extend(repositories::list_dropped_schools(conn, None)?);
     Ok(schools
         .into_iter()
         .map(|school| normalize_school_key(&school.name))

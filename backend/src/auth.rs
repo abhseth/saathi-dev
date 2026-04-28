@@ -81,3 +81,25 @@ pub fn require_admin_or_aom(claims: &Claims) -> Result<(), AppError> {
         Err(AppError::forbidden("Admin or AOM role required"))
     }
 }
+
+/// Enforce that the user can access a specific school.
+/// Admin sees everything; scoped roles (aom, faculty, principal) are limited
+/// to the schools listed in their JWT claims.
+pub fn enforce_school_scope(claims: &Claims, school_id: i64) -> Result<(), AppError> {
+    if claims.role == "admin" {
+        return Ok(());
+    }
+    if claims.school_ids.contains(&school_id) {
+        return Ok(());
+    }
+    Err(AppError::forbidden("Access to this school is denied"))
+}
+
+/// Returns `None` for admin (unfiltered) or `Some(&school_ids)` for scoped roles.
+pub fn scope_filter<'a>(claims: &'a Claims) -> Option<&'a [i64]> {
+    if claims.role == "admin" {
+        None
+    } else {
+        Some(&claims.school_ids)
+    }
+}

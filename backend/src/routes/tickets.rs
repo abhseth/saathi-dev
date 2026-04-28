@@ -5,6 +5,7 @@ use axum::{
 use std::sync::Arc;
 
 use crate::{
+    auth::{enforce_school_scope, scope_filter},
     error::AppError,
     models::*,
     repositories,
@@ -12,10 +13,11 @@ use crate::{
 
 pub async fn list_tickets(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<Ticket>>, AppError> {
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::refresh_escalations(&*conn).map_err(|e| AppError::internal(&e))?;
-    Ok(Json(repositories::list_tickets(&*conn)?))
+    Ok(Json(repositories::list_tickets(&*conn, scope_filter(&claims))?))
 }
 
 pub async fn create_ticket(
@@ -23,6 +25,9 @@ pub async fn create_ticket(
     Extension(claims): Extension<Claims>,
     Json(input): Json<CreateTicketInput>,
 ) -> Result<Json<Ticket>, AppError> {
+    if let Some(sid) = input.school_id {
+        enforce_school_scope(&claims, sid)?;
+    }
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::create_ticket(&*conn, &input, &claims.display_name)?))
 }
@@ -34,6 +39,9 @@ pub async fn update_ticket(
     Json(mut input): Json<UpdateTicketInput>,
 ) -> Result<Json<Ticket>, AppError> {
     input.id = id;
+    if let Some(sid) = input.school_id {
+        enforce_school_scope(&claims, sid)?;
+    }
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_ticket(&*conn, &input, &claims.display_name)?))
 }

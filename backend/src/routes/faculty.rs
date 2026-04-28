@@ -5,7 +5,7 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::{auth::{require_admin, require_admin_or_aom}, error::AppError, models::*, repositories};
+use crate::{auth::{enforce_school_scope, require_admin, require_admin_or_aom, scope_filter}, error::AppError, models::*, repositories};
 
 #[allow(unused_imports)]
 use crate::models::{TimetableSlot, UpsertTimetableSlotInput};
@@ -59,10 +59,11 @@ pub struct EffectiveSubjectsQuery {
 
 pub async fn list_effective_subjects(
     State(state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(school_id): Path<i64>,
     Query(q): Query<EffectiveSubjectsQuery>,
 ) -> Result<Json<Vec<EffectiveSubject>>, AppError> {
+    enforce_school_scope(&claims, school_id)?;
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_effective_subjects(
         &*conn, school_id, &q.track,
@@ -82,9 +83,7 @@ pub async fn set_school_optional_subject(
     Json(input): Json<ToggleOptionalSubjectInput>,
 ) -> Result<Json<()>, AppError> {
     require_admin_or_aom(&claims)?;
-    // Note: AOM scope-check (school_id ∈ user_schools) is added when faculty
-    // assignments and timetable land. For now, admins or any AOM can toggle —
-    // AOM scope enforcement is wired in the next step alongside faculty CRUD.
+    enforce_school_scope(&claims, school_id)?;
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::set_school_optional_subject(&*conn, school_id, input.subject_id, input.enabled)?;
     Ok(Json(()))
@@ -100,7 +99,7 @@ pub struct FacultyAssignmentQuery {
 
 pub async fn list_faculty_assignments(
     State(state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(q): Query<FacultyAssignmentQuery>,
 ) -> Result<Json<Vec<FacultyAssignment>>, AppError> {
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
@@ -108,6 +107,7 @@ pub async fn list_faculty_assignments(
         &*conn,
         q.school_id,
         q.faculty_user_id,
+        scope_filter(&claims),
     )?))
 }
 
@@ -117,6 +117,7 @@ pub async fn create_faculty_assignment(
     Json(input): Json<CreateFacultyAssignmentInput>,
 ) -> Result<Json<FacultyAssignment>, AppError> {
     require_admin_or_aom(&claims)?;
+    enforce_school_scope(&claims, input.school_id)?;
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::create_faculty_assignment(&*conn, &input)?))
 }
@@ -144,7 +145,7 @@ pub struct TimetableSlotQuery {
 
 pub async fn list_timetable_slots(
     State(state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(q): Query<TimetableSlotQuery>,
 ) -> Result<Json<Vec<TimetableSlot>>, AppError> {
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
@@ -154,6 +155,7 @@ pub async fn list_timetable_slots(
         q.grade_level.as_deref(),
         q.track.as_deref(),
         q.batch_pattern.as_deref(),
+        scope_filter(&claims),
     )?))
 }
 
@@ -163,6 +165,7 @@ pub async fn upsert_timetable_slot(
     Json(input): Json<UpsertTimetableSlotInput>,
 ) -> Result<Json<TimetableSlot>, AppError> {
     require_admin_or_aom(&claims)?;
+    enforce_school_scope(&claims, input.school_id)?;
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::upsert_timetable_slot(&*conn, &input)?))
 }

@@ -17,7 +17,7 @@ pub async fn tickets_csv(
 ) -> Result<Response, AppError> {
     require_admin_or_aom(&claims)?;
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    let tickets = repositories::list_tickets(&*conn)?;
+    let tickets = repositories::list_tickets(&*conn, None)?;
 
     let mut csv = String::from(
         "ID,Title,Requester,Assignee,Status,Priority,Queue,School,Student,Grade Level,Program Track,Issue Category,SLA Due,Escalation Status,Created At,Updated At\n"
@@ -74,7 +74,7 @@ pub async fn sip_master_csv(
 ) -> Result<Response, AppError> {
     require_admin_or_aom(&claims)?;
     let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    let schools = repositories::list_schools(&*conn)?;
+    let schools = repositories::list_schools(&*conn, None)?;
 
     let mut csv = String::from(
         "School Name,Region,Program Model,Distance Classification,\
