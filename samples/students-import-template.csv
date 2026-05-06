@@ -1,0 +1,5 @@
+name,registration_number,grade_level,program_track,academic_track,student_mobile,student_email,father_name,father_email,father_mobile,mother_name,mother_email,mother_mobile,batch_id
+Aarav Sharma,REG2024001,Grade 10,Integrated STEM,,9876543210,aarav@example.com,Rajesh Sharma,rajesh@example.com,9876543211,Priya Sharma,priya@example.com,9876543212,Grade 10|Foundation|Weekday
+Vivaan Gupta,REG2024002,Grade 11,JEE Foundation,JEE,9876543220,vivaan@example.com,Sunil Gupta,sunil@example.com,9876543221,Anita Gupta,anita@example.com,9876543222,Grade 11|JEE|Weekday
+Diya Patel,REG2024003,Grade 11,NEET Foundation,NEET,9876543230,diya@example.com,Arun Patel,arun@example.com,9876543231,Sunita Patel,sunita@example.com,9876543232,Grade 11|NEET|Weekday
+Rohan Verma,REG2024004,Grade 9,Board Excellence,,9876543240,rohan@example.com,Manoj Verma,manoj@example.com,9876543241,Geeta Verma,geeta@example.com,9876543242,Grade 9|Foundation|Weekday

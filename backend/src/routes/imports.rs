@@ -6,7 +6,20 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::{error::AppError, models::*, repositories};
+use crate::{
+    auth::{enforce_school_scope, require_admin, require_admin_or_aom},
+    error::AppError,
+    models::*,
+    repositories,
+};
+
+fn spawn_blocking<F, R>(f: F) -> tokio::task::JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+}
 
 #[derive(Serialize)]
 pub struct SchoolImportResult {
@@ -20,9 +33,7 @@ pub async fn import_schools_csv(
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
 ) -> Result<Json<SchoolImportResult>, AppError> {
-    if claims.role == "viewer" {
-        return Err(AppError::forbidden("Viewers cannot import schools"));
-    }
+    require_admin(&claims)?;
 
     let mut content: Option<String> = None;
     while let Some(field) = multipart
@@ -44,48 +55,245 @@ pub async fn import_schools_csv(
     }
 
     let content = content.ok_or_else(|| AppError::bad_request("No file field in upload"))?;
-    let rows = parse_csv_rows(&content)
-        .map_err(|e| AppError::bad_request(format!("CSV parse error: {e}")))?;
-    if rows.is_empty() {
-        return Err(AppError::bad_request("CSV is empty"));
-    }
+    let display_name = claims.display_name.clone();
 
-    let headers: Vec<String> = rows[0].iter().map(|h| normalize_csv_header(h)).collect();
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-
-    let mut imported_count = 0;
-    let mut skipped_count = 0;
-    let mut errors: Vec<String> = Vec::new();
-
-    for (line_no, row) in rows.into_iter().enumerate().skip(1) {
-        let values: HashMap<String, String> = headers
-            .iter()
-            .enumerate()
-            .map(|(i, h)| (h.clone(), row.get(i).cloned().unwrap_or_default()))
-            .collect();
-        let input = school_input_from_csv(&values);
-
-        if input.name.trim().is_empty() {
-            skipped_count += 1;
-            continue;
+    let result = spawn_blocking(move || -> Result<SchoolImportResult, AppError> {
+        let rows = parse_csv_rows(&content)
+            .map_err(|e| AppError::bad_request(format!("CSV parse error: {e}")))?;
+        if rows.is_empty() {
+            return Err(AppError::bad_request("CSV is empty"));
         }
 
-        match repositories::create_school(&*conn, &input, &claims.display_name) {
-            Ok(_) => imported_count += 1,
-            Err(e) => {
+        let headers: Vec<String> = rows[0].iter().map(|h| normalize_csv_header(h)).collect();
+        let conn = state
+            .db
+            .get()
+            .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+        conn.execute("BEGIN TRANSACTION", [])
+            .map_err(|e| AppError::internal(format!("Failed to begin transaction: {e}")))?;
+
+        let mut imported_count = 0;
+        let mut skipped_count = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        for (line_no, row) in rows.into_iter().enumerate().skip(1) {
+            let values: HashMap<String, String> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| (h.clone(), row.get(i).cloned().unwrap_or_default()))
+                .collect();
+            let input = school_input_from_csv(&values);
+
+            if input.name.trim().is_empty() {
                 skipped_count += 1;
-                if errors.len() < 20 {
-                    errors.push(format!("Row {}: {} ({})", line_no + 1, input.name, e));
+                continue;
+            }
+
+            match repositories::create_school(&*conn, &input, &display_name) {
+                Ok(_) => imported_count += 1,
+                Err(e) => {
+                    skipped_count += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!("Row {}: {} ({})", line_no + 1, input.name, e));
+                    }
                 }
             }
         }
+
+        if let Err(e) = conn.execute("COMMIT", []) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(AppError::internal(format!(
+                "Failed to commit transaction: {e}"
+            )));
+        }
+
+        Ok(SchoolImportResult {
+            imported_count,
+            skipped_count,
+            errors,
+        })
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?;
+
+    Ok(Json(result?))
+}
+
+// ── Students CSV import ─────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct StudentImportResult {
+    pub imported_count: usize,
+    pub updated_count: usize,
+    pub skipped_count: usize,
+    pub errors: Vec<String>,
+}
+
+pub async fn import_students_csv(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    mut multipart: Multipart,
+) -> Result<Json<StudentImportResult>, AppError> {
+    require_admin_or_aom(&claims)?;
+
+    let mut content: Option<String> = None;
+    let mut school_id: Option<i64> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::bad_request(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("file") => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Failed to read upload: {e}")))?;
+                content = Some(
+                    String::from_utf8(bytes.to_vec())
+                        .map_err(|_| AppError::bad_request("CSV is not valid UTF-8"))?,
+                );
+            }
+            Some("school_id") => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Failed to read field: {e}")))?;
+                let s = String::from_utf8(bytes.to_vec())
+                    .map_err(|_| AppError::bad_request("school_id is not UTF-8"))?;
+                school_id = s.trim().parse().ok();
+            }
+            _ => {}
+        }
     }
 
-    Ok(Json(SchoolImportResult {
-        imported_count,
-        skipped_count,
-        errors,
-    }))
+    let content = content.ok_or_else(|| AppError::bad_request("No file field in upload"))?;
+    let school_id = school_id.ok_or_else(|| AppError::bad_request("Missing school_id field"))?;
+    enforce_school_scope(&claims, school_id)?;
+
+    let result = spawn_blocking(move || -> Result<StudentImportResult, AppError> {
+        let rows = parse_csv_rows(&content)
+            .map_err(|e| AppError::bad_request(format!("CSV parse error: {e}")))?;
+        if rows.is_empty() {
+            return Err(AppError::bad_request("CSV is empty"));
+        }
+
+        let headers: Vec<String> = rows[0].iter().map(|h| normalize_csv_header(h)).collect();
+        let conn = state
+            .db
+            .get()
+            .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+        conn.execute("BEGIN TRANSACTION", [])
+            .map_err(|e| AppError::internal(format!("Failed to begin transaction: {e}")))?;
+
+        let mut imported_count = 0;
+        let updated_count = 0;
+        let mut skipped_count = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        for (line_no, row) in rows.into_iter().enumerate().skip(1) {
+            let values: HashMap<String, String> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| (h.clone(), row.get(i).cloned().unwrap_or_default()))
+                .collect();
+
+            let name = csv_value(&values, &["name", "student_name"]);
+            if name.is_empty() {
+                skipped_count += 1;
+                continue;
+            }
+
+            let input = CreateStudentInput {
+                school_id,
+                name: name.clone(),
+                registration_number: csv_value(
+                    &values,
+                    &[
+                        "registration_number",
+                        "reg_no",
+                        "roll_number",
+                        "enrollment_number",
+                    ],
+                ),
+                grade_level: csv_value(&values, &["grade_level", "grade", "class"]),
+                program_track: csv_value(&values, &["program_track", "program", "track"]),
+                track: csv_value(&values, &["academic_track", "academic_track"]),
+                student_mobile: csv_value(
+                    &values,
+                    &["student_mobile", "student_phone", "mobile", "phone"],
+                ),
+                student_email: csv_value(&values, &["student_email", "email"]),
+                father_name: csv_value(&values, &["father_name", "fathers_name", "father"]),
+                father_email: csv_value(&values, &["father_email", "fathers_email"]),
+                father_mobile: csv_value(
+                    &values,
+                    &[
+                        "father_mobile",
+                        "father_phone",
+                        "fathers_mobile",
+                        "fathers_phone",
+                    ],
+                ),
+                mother_name: csv_value(&values, &["mother_name", "mothers_name", "mother"]),
+                mother_email: csv_value(&values, &["mother_email", "mothers_email"]),
+                mother_mobile: csv_value(
+                    &values,
+                    &[
+                        "mother_mobile",
+                        "mother_phone",
+                        "mothers_mobile",
+                        "mothers_phone",
+                    ],
+                ),
+                batch_ref_id: csv_value(&values, &["batch_ref_id", "batch_ref"]).parse().unwrap_or(0),
+                batch_id: csv_value(
+                    &values,
+                    &["batch_id", "batch", "batch_alloted", "batch_allotted"],
+                ),
+            };
+
+            if input.grade_level.is_empty() {
+                skipped_count += 1;
+                errors.push(format!(
+                    "Row {}: missing grade_level for '{}'",
+                    line_no + 1,
+                    name
+                ));
+                continue;
+            }
+
+            match repositories::create_student(&*conn, &input) {
+                Ok(_student) => {
+                    imported_count += 1;
+                }
+                Err(e) => {
+                    skipped_count += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!("Row {}: {} ({})", line_no + 1, name, e));
+                    }
+                }
+            }
+        }
+
+        if let Err(e) = conn.execute("COMMIT", []) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(AppError::internal(format!(
+                "Failed to commit transaction: {e}"
+            )));
+        }
+
+        Ok(StudentImportResult {
+            imported_count,
+            updated_count,
+            skipped_count,
+            errors,
+        })
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?;
+
+    Ok(Json(result?))
 }
 
 // ── SIP master: preview + import ────────────────────────────────────────────
@@ -107,8 +315,9 @@ pub struct SipMasterImportResult {
     pub class_plan_count: usize,
 }
 
-async fn read_upload(multipart: &mut Multipart) -> Result<(Option<String>, Option<String>), AppError>
-{
+async fn read_upload(
+    multipart: &mut Multipart,
+) -> Result<(Option<String>, Option<String>), AppError> {
     let mut content: Option<String> = None;
     let mut conflict_action: Option<String> = None;
     while let Some(field) = multipart
@@ -148,9 +357,7 @@ pub async fn preview_sip_master_import(
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
 ) -> Result<Json<SipMasterImportPreview>, AppError> {
-    if claims.role == "viewer" {
-        return Err(AppError::forbidden("Viewers cannot import SIP master"));
-    }
+    require_admin(&claims)?;
 
     let (content, _) = read_upload(&mut multipart).await?;
     let content = content.ok_or_else(|| AppError::bad_request("No file field in upload"))?;
@@ -160,7 +367,10 @@ pub async fn preview_sip_master_import(
         return Err(AppError::bad_request("SIP master file is empty"));
     }
 
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     let existing_names = existing_school_names(&*conn)?;
     let mut existing_schools: Vec<String> = Vec::new();
     let mut new_school_count = 0;
@@ -195,14 +405,12 @@ pub async fn import_sip_master(
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
 ) -> Result<Json<SipMasterImportResult>, AppError> {
-    if claims.role == "viewer" {
-        return Err(AppError::forbidden("Viewers cannot import SIP master"));
-    }
+    require_admin(&claims)?;
 
     let (content, conflict_action) = read_upload(&mut multipart).await?;
     let content = content.ok_or_else(|| AppError::bad_request("No file field in upload"))?;
-    let conflict_action = conflict_action
-        .ok_or_else(|| AppError::bad_request("Missing conflict_action field"))?;
+    let conflict_action =
+        conflict_action.ok_or_else(|| AppError::bad_request("Missing conflict_action field"))?;
     let update_existing = match conflict_action.trim() {
         "update_existing" => true,
         "skip_existing" => false,
@@ -219,47 +427,242 @@ pub async fn import_sip_master(
         return Err(AppError::bad_request("SIP master file is empty"));
     }
 
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    let mut existing_names = existing_school_names(&*conn)?;
-    let mut imported_count = 0;
-    let mut updated_count = 0;
-    let mut skipped_count = 0;
-    let mut class_plan_count = 0;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    conn.execute("BEGIN TRANSACTION", [])
+        .map_err(|e| AppError::internal(format!("Failed to begin transaction: {e}")))?;
 
-    for values in tabular_values(&rows).into_iter() {
-        let mut input = school_input_from_csv(&values);
-        if input.name.trim().is_empty() {
-            skipped_count += 1;
-            continue;
+    let result = (|| -> Result<Json<SipMasterImportResult>, AppError> {
+        let mut existing_names = existing_school_names(&*conn)?;
+        let mut imported_count = 0;
+        let mut updated_count = 0;
+        let mut skipped_count = 0;
+        let mut class_plan_count = 0;
+
+        for values in tabular_values(&rows).into_iter() {
+            let mut input = school_input_from_csv(&values);
+            if input.name.trim().is_empty() {
+                skipped_count += 1;
+                continue;
+            }
+
+            if let Some(region_id) =
+                import_region_id_from_row(&*conn, &values, &claims.display_name)?
+            {
+                input.region_id = Some(region_id);
+            }
+
+            let exists = existing_names.contains(&normalize_school_key(&input.name));
+            if exists && !update_existing {
+                skipped_count += 1;
+                continue;
+            }
+
+            let school = repositories::create_school(&*conn, &input, &claims.display_name)?;
+            if exists {
+                updated_count += 1;
+            } else {
+                imported_count += 1;
+                existing_names.push(normalize_school_key(&input.name));
+            }
+
+            class_plan_count +=
+                import_school_class_plans_from_master_row(&*conn, school.id, &values)?;
         }
 
-        if let Some(region_id) = import_region_id_from_row(&*conn, &values, &claims.display_name)? {
-            input.region_id = Some(region_id);
-        }
+        conn.execute("COMMIT", [])
+            .map_err(|e| AppError::internal(format!("Failed to commit transaction: {e}")))?;
 
-        let exists = existing_names.contains(&normalize_school_key(&input.name));
-        if exists && !update_existing {
-            skipped_count += 1;
-            continue;
-        }
+        Ok(Json(SipMasterImportResult {
+            imported_count,
+            updated_count,
+            skipped_count,
+            class_plan_count,
+        }))
+    })();
+    if result.is_err() {
+        let _ = conn.execute("ROLLBACK", []);
+    }
+    result
+}
 
-        let school = repositories::create_school(&*conn, &input, &claims.display_name)?;
-        if exists {
-            updated_count += 1;
-        } else {
-            imported_count += 1;
-            existing_names.push(normalize_school_key(&input.name));
-        }
+// ── Faculty Members CSV import ────────────────────────────────────────────────
 
-        class_plan_count += import_school_class_plans_from_master_row(&*conn, school.id, &values)?;
+#[derive(Serialize)]
+pub struct FacultyMemberImportResult {
+    pub imported_count: usize,
+    pub skipped_count: usize,
+    pub errors: Vec<String>,
+}
+
+fn faculty_member_input_from_csv(values: &HashMap<String, String>) -> CreateFacultyMemberInput {
+    let experience_years = csv_value(values, &["experience_years", "experience"])
+        .parse::<i64>()
+        .unwrap_or(0);
+    CreateFacultyMemberInput {
+        name: csv_value(values, &["name", "display_name", "faculty_name"]),
+        email: csv_value(values, &["email", "email_id"]),
+        mobile: csv_value(values, &["mobile", "phone", "contact"]),
+        pwid: csv_value(values, &["pwid", "employee_id", "emp_id"]),
+        qualification: csv_value(values, &["qualification", "degree"]),
+        experience_years,
+        designation: csv_value(values, &["designation", "title"]),
+        specialization: csv_value(values, &["specialization", "subject_specialization"]),
+        employment_type: csv_value(values, &["employment_type", "employment"]),
+        is_active: true,
+        user_id: None,
+        initial_school_id: None,
+    }
+}
+
+pub async fn import_faculty_members_csv(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    mut multipart: Multipart,
+) -> Result<Json<FacultyMemberImportResult>, AppError> {
+    require_admin_or_aom(&claims)?;
+
+    let mut content: Option<String> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::bad_request(format!("Multipart error: {e}")))?
+    {
+        if field.name() == Some("file") {
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::bad_request(format!("Failed to read upload: {e}")))?;
+            content = Some(
+                String::from_utf8(bytes.to_vec())
+                    .map_err(|_| AppError::bad_request("CSV is not valid UTF-8"))?,
+            );
+            break;
+        }
     }
 
-    Ok(Json(SipMasterImportResult {
-        imported_count,
-        updated_count,
-        skipped_count,
-        class_plan_count,
-    }))
+    let content = content.ok_or_else(|| AppError::bad_request("No file field in upload"))?;
+
+    let result = spawn_blocking(move || -> Result<FacultyMemberImportResult, AppError> {
+        let rows = parse_csv_rows(&content)
+            .map_err(|e| AppError::bad_request(format!("CSV parse error: {e}")))?;
+        if rows.is_empty() {
+            return Err(AppError::bad_request("CSV is empty"));
+        }
+
+        let headers: Vec<String> = rows[0].iter().map(|h| normalize_csv_header(h)).collect();
+        let conn = state
+            .db
+            .get()
+            .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+        conn.execute("BEGIN TRANSACTION", [])
+            .map_err(|e| AppError::internal(format!("Failed to begin transaction: {e}")))?;
+
+        let schools: Vec<(i64, String)> = conn
+            .prepare("SELECT id, name FROM schools")
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        let mut imported_count = 0;
+        let mut skipped_count = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        for (line_no, row) in rows.into_iter().enumerate().skip(1) {
+            let values: HashMap<String, String> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| (h.clone(), row.get(i).cloned().unwrap_or_default()))
+                .collect();
+            let mut input = faculty_member_input_from_csv(&values);
+
+            if input.name.trim().is_empty() {
+                skipped_count += 1;
+                continue;
+            }
+
+            // Resolve school and validate scope before creating faculty
+            let school_name = csv_value(&values, &["school_name", "school"]);
+            let school_id_raw = csv_value(&values, &["school_id"]);
+            let maybe_school_id = if !school_id_raw.is_empty() {
+                school_id_raw.parse::<i64>().ok()
+            } else if !school_name.is_empty() {
+                schools
+                    .iter()
+                    .find(|(_, n)| n.to_ascii_lowercase() == school_name.to_ascii_lowercase())
+                    .map(|(id, _)| *id)
+            } else {
+                None
+            };
+
+            if let Some(school_id) = maybe_school_id {
+                if !schools.iter().any(|(id, _)| *id == school_id) {
+                    skipped_count += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!(
+                            "Row {}: school '{}' not found",
+                            line_no + 1,
+                            school_name
+                        ));
+                    }
+                    continue;
+                }
+                if enforce_school_scope(&claims, school_id).is_err() {
+                    skipped_count += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!(
+                            "Row {}: school '{}' is out of scope",
+                            line_no + 1,
+                            school_name
+                        ));
+                    }
+                    continue;
+                }
+                input.initial_school_id = Some(school_id);
+            } else if claims.role != "admin" {
+                // AOM must provide a school
+                skipped_count += 1;
+                if errors.len() < 20 {
+                    errors.push(format!(
+                        "Row {}: AOM import requires school_name or school_id",
+                        line_no + 1
+                    ));
+                }
+                continue;
+            }
+
+            match repositories::create_faculty_member(&*conn, &input) {
+                Ok(_) => imported_count += 1,
+                Err(e) => {
+                    skipped_count += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!("Row {}: {} ({})", line_no + 1, input.name, e));
+                    }
+                }
+            }
+        }
+
+        if let Err(e) = conn.execute("COMMIT", []) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(AppError::internal(format!(
+                "Failed to commit transaction: {e}"
+            )));
+        }
+
+        Ok(FacultyMemberImportResult {
+            imported_count,
+            skipped_count,
+            errors,
+        })
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?;
+
+    Ok(Json(result?))
 }
 
 // ── SIP master helpers ──────────────────────────────────────────────────────
@@ -344,21 +747,34 @@ fn import_school_class_plans_from_master_row(
         let prefix = if track.is_empty() {
             normalize_csv_header(grade)
         } else {
-            format!("{}_{}", normalize_csv_header(grade), normalize_csv_header(track))
+            format!(
+                "{}_{}",
+                normalize_csv_header(grade),
+                normalize_csv_header(track)
+            )
         };
         let lecture_model_name = csv_value(values, &[&format!("{prefix}_lecture_model")]);
         let batch_pattern = csv_value(values, &[&format!("{prefix}_batch_pattern")]);
         let aop_admissions = parse_optional_i64(&csv_value(
             values,
-            &[&format!("{prefix}_aop_admissions"), &format!("{prefix}_aop")],
+            &[
+                &format!("{prefix}_aop_admissions"),
+                &format!("{prefix}_aop"),
+            ],
         ))?;
         let registrations = parse_optional_i64(&csv_value(
             values,
-            &[&format!("{prefix}_registrations"), &format!("{prefix}_registration")],
+            &[
+                &format!("{prefix}_registrations"),
+                &format!("{prefix}_registration"),
+            ],
         ))?;
         let actual_admissions = parse_optional_i64(&csv_value(
             values,
-            &[&format!("{prefix}_actual_admissions"), &format!("{prefix}_actual")],
+            &[
+                &format!("{prefix}_actual_admissions"),
+                &format!("{prefix}_actual"),
+            ],
         ))?;
 
         if lecture_model_name.is_empty()
@@ -601,7 +1017,270 @@ fn school_input_from_csv(values: &HashMap<String, String>) -> CreateSchoolInput 
         aom_email: csv_value(values, &["aom_email", "academic_operations_manager_email"]),
         mapped_vp_center: csv_value(
             values,
-            &["mapped_vp_center", "vp_center", "vp_centre", "mapped_vp_centre"],
+            &[
+                "mapped_vp_center",
+                "vp_center",
+                "vp_centre",
+                "mapped_vp_centre",
+            ],
         ),
+        vp_tagging: csv_value(values, &["vp_tagging", "vp_tag"]),
     }
+}
+
+// ── Timetable CSV import ────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct TimetableImportResult {
+    pub imported_count: usize,
+    pub skipped_count: usize,
+    pub errors: Vec<String>,
+}
+
+pub async fn import_timetable_csv(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    mut multipart: Multipart,
+) -> Result<Json<TimetableImportResult>, AppError> {
+    require_admin_or_aom(&claims)?;
+
+    let mut content: Option<String> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::bad_request(format!("Multipart error: {e}")))?
+    {
+        if field.name() == Some("file") {
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::bad_request(format!("Failed to read upload: {e}")))?;
+            content = Some(
+                String::from_utf8(bytes.to_vec())
+                    .map_err(|_| AppError::bad_request("CSV is not valid UTF-8"))?,
+            );
+            break;
+        }
+    }
+
+    let content = content.ok_or_else(|| AppError::bad_request("No file field in upload"))?;
+    let rows = parse_csv_rows(&content)
+        .map_err(|e| AppError::bad_request(format!("CSV parse error: {e}")))?;
+    if rows.is_empty() {
+        return Err(AppError::bad_request("CSV is empty"));
+    }
+
+    let headers: Vec<String> = rows[0].iter().map(|h| normalize_csv_header(h)).collect();
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    conn.execute("BEGIN TRANSACTION", [])
+        .map_err(|e| AppError::internal(format!("Failed to begin transaction: {e}")))?;
+
+    let result = (|| -> Result<Json<TimetableImportResult>, AppError> {
+        // Build lookup caches
+        let schools: Vec<(i64, String)> = conn
+            .prepare("SELECT id, name FROM schools WHERE is_dropped = 0")
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        let subjects: Vec<(i64, String, String)> = conn
+            .prepare("SELECT id, name, track FROM subjects")
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        let users: Vec<(i64, String)> = conn
+            .prepare("SELECT id, username FROM users WHERE role = 'faculty' AND is_active = 1")
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
+        let mut imported_count = 0;
+        let mut skipped_count = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        for (line_no, row) in rows.into_iter().enumerate().skip(1) {
+            let values: HashMap<String, String> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| (h.clone(), row.get(i).cloned().unwrap_or_default()))
+                .collect();
+
+            let school_name = csv_value(&values, &["school_name", "school"]);
+            if school_name.is_empty() {
+                skipped_count += 1;
+                continue;
+            }
+
+            let school_id = schools
+                .iter()
+                .find(|(_, n)| n.to_ascii_lowercase() == school_name.to_ascii_lowercase())
+                .map(|(id, _)| *id);
+            let Some(school_id) = school_id else {
+                skipped_count += 1;
+                if errors.len() < 20 {
+                    errors.push(format!(
+                        "Row {}: school '{}' not found",
+                        line_no + 1,
+                        school_name
+                    ));
+                }
+                continue;
+            };
+
+            enforce_school_scope(&claims, school_id)
+                .map_err(|_| AppError::forbidden("Access denied for school"))?;
+
+            let subject_name = csv_value(&values, &["subject_name", "subject"]);
+            let track = csv_value(&values, &["track", "academic_track"]);
+            let subject_id = subjects
+                .iter()
+                .find(|(_, n, t)| {
+                    n.to_ascii_lowercase() == subject_name.to_ascii_lowercase()
+                        && t.to_ascii_lowercase() == track.to_ascii_lowercase()
+                })
+                .map(|(id, _, _)| *id);
+            let Some(subject_id) = subject_id else {
+                skipped_count += 1;
+                if errors.len() < 20 {
+                    errors.push(format!(
+                        "Row {}: subject '{}' track '{}' not found",
+                        line_no + 1,
+                        subject_name,
+                        track
+                    ));
+                }
+                continue;
+            };
+
+            let faculty_username =
+                csv_value(&values, &["faculty_username", "faculty", "faculty_user"]);
+            let faculty_user_id = if faculty_username.is_empty() {
+                None
+            } else {
+                users
+                    .iter()
+                    .find(|(_, u)| u.to_ascii_lowercase() == faculty_username.to_ascii_lowercase())
+                    .map(|(id, _)| *id)
+            };
+
+            let grade_level = csv_value(&values, &["grade_level", "grade"]);
+            let batch_pattern =
+                normalize_batch_pattern(&csv_value(&values, &["batch_pattern", "batch"]));
+            let batch_name = csv_value(&values, &["batch_id", "batch_name", "batch_code"]);
+            let day_of_week = csv_value(&values, &["day_of_week", "day"])
+                .parse::<i64>()
+                .unwrap_or(-1);
+            let period = csv_value(&values, &["period"]).parse::<i64>().unwrap_or(-1);
+            let start_time = csv_value(&values, &["start_time", "start"]);
+            let end_time = csv_value(&values, &["end_time", "end"]);
+
+            if day_of_week < 0 || day_of_week > 6 || period < 1 {
+                skipped_count += 1;
+                if errors.len() < 20 {
+                    errors.push(format!(
+                        "Row {}: invalid day_of_week '{}' or period '{}'",
+                        line_no + 1,
+                        day_of_week,
+                        period
+                    ));
+                }
+                continue;
+            }
+
+            let concrete_batch_name = if batch_name.is_empty() {
+                format!(
+                    "{}|{}|{}",
+                    grade_level,
+                    if track.is_empty() { "Foundation" } else { &track },
+                    batch_pattern
+                )
+            } else {
+                batch_name.clone()
+            };
+            let batch = match repositories::create_batch(
+                &conn,
+                &crate::models::CreateBatchInput {
+                    school_id,
+                    batch_id: concrete_batch_name,
+                    grade_level: grade_level.clone(),
+                    track: track.clone(),
+                    batch_pattern: batch_pattern.clone(),
+                    capacity: 0,
+                },
+            ) {
+                Ok(batch) => batch,
+                Err(_) => {
+                    let candidates = repositories::list_batches(&conn, Some(school_id), None)
+                        .map_err(AppError::internal)?;
+                    candidates
+                        .into_iter()
+                        .find(|b| {
+                            b.grade_level == grade_level
+                                && b.track == track
+                                && b.batch_pattern == batch_pattern
+                                && (batch_name.is_empty() || b.batch_id == batch_name)
+                        })
+                        .ok_or_else(|| AppError::bad_request("Could not resolve timetable batch"))?
+                }
+            };
+
+            match repositories::upsert_timetable_slot(
+                &conn,
+                &crate::models::UpsertTimetableSlotInput {
+                    school_id: 0,
+                    batch_id: batch.id,
+                    grade_level: String::new(),
+                    track: String::new(),
+                    batch_pattern: String::new(),
+                    day_of_week,
+                    period,
+                    subject_id,
+                    faculty_user_id,
+                    start_time: start_time.clone(),
+                    end_time: end_time.clone(),
+                    room: String::new(),
+                    session_type: "Lecture".to_string(),
+                },
+            ) {
+                Ok(_) => imported_count += 1,
+                Err(e) => {
+                    skipped_count += 1;
+                    if errors.len() < 20 {
+                        errors.push(format!(
+                            "Row {}: {} ({} {} {} P{})",
+                            line_no + 1,
+                            e,
+                            school_name,
+                            grade_level,
+                            batch_pattern,
+                            period
+                        ));
+                    }
+                }
+            }
+        }
+
+        conn.execute("COMMIT", [])
+            .map_err(|e| AppError::internal(format!("Failed to commit transaction: {e}")))?;
+
+        Ok(Json(TimetableImportResult {
+            imported_count,
+            skipped_count,
+            errors,
+        }))
+    })();
+    if result.is_err() {
+        let _ = conn.execute("ROLLBACK", []);
+    }
+    result
 }

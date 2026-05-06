@@ -1,0 +1,7 @@
+school_name,grade_level,track,batch_pattern,day_of_week,period,subject_name,faculty_username,start_time,end_time
+North City Senior Secondary,Grade 10,,Weekday,0,1,Chemistry,faculty1,09:00,10:00
+North City Senior Secondary,Grade 10,,Weekday,0,2,Physics,faculty2,10:00,11:00
+North City Senior Secondary,Grade 10,,Weekday,1,1,Chemistry,faculty1,09:00,10:00
+North City Senior Secondary,Grade 10,,Weekday,1,2,Biology,faculty3,10:00,11:00
+Green Valley Public School,Grade 11,JEE,Weekday,0,1,Physics,faculty2,09:00,10:00
+Green Valley Public School,Grade 11,JEE,Weekday,0,2,Chemistry,faculty1,10:00,11:00

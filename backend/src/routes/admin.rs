@@ -8,11 +8,26 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::{db, error::AppError, models::*, repositories};
+use crate::{
+    auth::{require_admin_or_aom, scope_filter},
+    db,
+    error::AppError,
+    models::*,
+    repositories,
+};
 
 #[derive(Deserialize)]
-pub struct LimitQuery {
-    pub limit: Option<i64>,
+pub struct PaginationQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct DasReportQuery {
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub group_by: Option<String>,
+    pub school_id: Option<i64>,
 }
 
 fn require_admin(claims: &Claims) -> Result<(), AppError> {
@@ -30,7 +45,10 @@ pub async fn list_users(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<AppUser>>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_users(&*conn)?))
 }
 
@@ -40,8 +58,15 @@ pub async fn create_user(
     Json(input): Json<CreateUserInput>,
 ) -> Result<Json<AppUser>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    Ok(Json(repositories::create_user(&*conn, &input, &claims.display_name)?))
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::create_user(
+        &*conn,
+        &input,
+        &claims.display_name,
+    )?))
 }
 
 pub async fn update_user(
@@ -52,8 +77,15 @@ pub async fn update_user(
 ) -> Result<Json<AppUser>, AppError> {
     require_admin(&claims)?;
     input.id = id;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    Ok(Json(repositories::update_user(&*conn, &input, &claims.display_name)?))
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::update_user(
+        &*conn,
+        &input,
+        &claims.display_name,
+    )?))
 }
 
 pub async fn delete_user(
@@ -63,7 +95,10 @@ pub async fn delete_user(
 ) -> Result<Json<()>, AppError> {
     require_admin(&claims)?;
     let current_user_id: i64 = claims.sub.parse().unwrap_or(0);
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::delete_user(&*conn, id, current_user_id, &claims.display_name)?;
     Ok(Json(()))
 }
@@ -74,8 +109,26 @@ pub async fn change_password(
     Json(input): Json<ChangePasswordInput>,
 ) -> Result<Json<()>, AppError> {
     let user_id: i64 = claims.sub.parse().unwrap_or(0);
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     repositories::change_password(&*conn, user_id, &input, &claims.display_name)?;
+    Ok(Json(()))
+}
+
+pub async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<i64>,
+    Json(input): Json<AdminResetPasswordInput>,
+) -> Result<Json<()>, AppError> {
+    require_admin(&claims)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    repositories::admin_reset_password(&*conn, id, &input.new_password, &claims.display_name)?;
     Ok(Json(()))
 }
 
@@ -84,19 +137,31 @@ pub async fn change_password(
 pub async fn list_audit_log(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
-    Query(q): Query<LimitQuery>,
-) -> Result<Json<Vec<AuditLogEntry>>, AppError> {
+    Query(q): Query<PaginationQuery>,
+) -> Result<Json<Paginated<AuditLogEntry>>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    Ok(Json(repositories::list_audit_log(&*conn, q.limit.unwrap_or(150))?))
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let page_size = q.page_size.unwrap_or(50).clamp(1, 500);
+    let offset = ((q.page.unwrap_or(1) - 1).max(0)) * page_size;
+    Ok(Json(repositories::list_audit_log(
+        &*conn, page_size, offset,
+    )?))
 }
 
 // ── Policies ──────────────────────────────────────────────────────────────────
 
 pub async fn list_sla_policies(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<SlaPolicy>>, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_sla_policies(&*conn)?))
 }
 
@@ -106,14 +171,22 @@ pub async fn update_sla_policy(
     Json(input): Json<UpdateSlaPolicyInput>,
 ) -> Result<Json<SlaPolicy>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_sla_policy(&*conn, &input)?))
 }
 
 pub async fn list_assignment_rules(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<AssignmentRule>>, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_assignment_rules(&*conn)?))
 }
 
@@ -123,14 +196,22 @@ pub async fn update_assignment_rule(
     Json(input): Json<UpdateAssignmentRuleInput>,
 ) -> Result<Json<AssignmentRule>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::update_assignment_rule(&*conn, &input)?))
 }
 
 pub async fn get_escalation_policy(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<EscalationPolicy>, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::get_escalation_policy(&*conn)?))
 }
 
@@ -140,23 +221,40 @@ pub async fn update_escalation_policy(
     Json(input): Json<UpdateEscalationPolicyInput>,
 ) -> Result<Json<EscalationPolicy>, AppError> {
     require_admin(&claims)?;
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    Ok(Json(repositories::update_escalation_policy(&*conn, &input)?))
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::update_escalation_policy(
+        &*conn, &input,
+    )?))
 }
 
 pub async fn list_communication_templates(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<CommunicationTemplate>>, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    require_admin_or_aom(&claims)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
     Ok(Json(repositories::list_communication_templates(&*conn)?))
 }
 
 pub async fn update_communication_template(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
     Json(input): Json<UpdateCommunicationTemplateInput>,
 ) -> Result<Json<CommunicationTemplate>, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    Ok(Json(repositories::update_communication_template(&*conn, &input)?))
+    require_admin(&claims)?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::update_communication_template(
+        &*conn, &input,
+    )?))
 }
 
 // ── DB snapshot / restore (admin only) ───────────────────────────────────────
@@ -176,22 +274,32 @@ pub async fn db_snapshot(
 ) -> Result<Response, AppError> {
     require_admin(&claims)?;
 
-    let live_path = db_path();
-    let temp_path = format!("{live_path}.snapshot.{}", std::process::id());
+    let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, String), AppError> {
+        let live_path = db_path();
+        let temp_path = format!("{live_path}.snapshot.{}", std::process::id());
 
-    {
-        let conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-        let escaped = temp_path.replace('\'', "''");
-        conn.execute(&format!("VACUUM INTO '{escaped}'"), [])
-            .map_err(|e| AppError::internal(format!("VACUUM INTO failed: {e}")))?;
-    }
+        {
+            let conn = state
+                .db
+                .get()
+                .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+            let escaped = temp_path.replace('\'', "''");
+            conn.execute(&format!("VACUUM INTO '{escaped}'"), [])
+                .map_err(|e| AppError::internal(format!("VACUUM INTO failed: {e}")))?;
+        }
 
-    let bytes = std::fs::read(&temp_path)
-        .map_err(|e| AppError::internal(format!("read snapshot: {e}")))?;
-    let _ = std::fs::remove_file(&temp_path);
+        let bytes = std::fs::read(&temp_path)
+            .map_err(|e| AppError::internal(format!("read snapshot: {e}")))?;
+        let _ = std::fs::remove_file(&temp_path);
 
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("saathi-snapshot-{stamp}.sqlite3");
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let filename = format!("saathi-snapshot-{stamp}.sqlite3");
+        Ok((bytes, filename))
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?;
+
+    let (bytes, filename) = result?;
 
     Ok((
         [
@@ -237,38 +345,141 @@ pub async fn db_restore(
         ));
     }
 
-    let live_path = db_path();
-    let staging_path = format!("{live_path}.restore.{}", std::process::id());
+    let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, AppError> {
+        let live_path = db_path();
+        let staging_path = format!("{live_path}.restore.{}", std::process::id());
 
-    std::fs::write(&staging_path, &bytes)
-        .map_err(|e| AppError::internal(format!("write staging: {e}")))?;
+        std::fs::write(&staging_path, &bytes)
+            .map_err(|e| AppError::internal(format!("write staging: {e}")))?;
 
-    // Open + run migrations on staged DB to ensure it's compatible with the
-    // current code. If the upload is from an older version, this brings it up.
-    {
-        let staged = rusqlite::Connection::open(&staging_path)
-            .map_err(|e| AppError::bad_request(format!("Cannot open uploaded DB: {e}")))?;
-        db::initialize_db(&staged)
-            .map_err(|e| AppError::bad_request(format!("Migrations on uploaded DB failed: {e}")))?;
+        {
+            let staged = rusqlite::Connection::open(&staging_path)
+                .map_err(|e| AppError::bad_request(format!("Cannot open uploaded DB: {e}")))?;
+            db::initialize_db(&staged).map_err(|e| {
+                AppError::bad_request(format!("Migrations on uploaded DB failed: {e}"))
+            })?;
+        }
+
+        let mut dst_conn = state
+            .db
+            .get()
+            .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+        let src_conn = rusqlite::Connection::open(&staging_path).map_err(|e| {
+            AppError::bad_request(format!("Cannot open staged DB for restore: {e}"))
+        })?;
+
+        let backup = rusqlite::backup::Backup::new(&src_conn, &mut dst_conn)
+            .map_err(|e| AppError::internal(format!("Backup init failed: {e}")))?;
+        backup
+            .step(-1)
+            .map_err(|e| AppError::internal(format!("Backup step failed: {e}")))?;
+        drop(backup);
+        drop(src_conn);
+        let _ = std::fs::remove_file(&staging_path);
+
+        Ok(serde_json::json!({
+            "ok": true,
+            "size_bytes": bytes.len(),
+            "path": live_path,
+        }))
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?;
+
+    Ok(Json(result?))
+}
+
+// ── Reporting (Phase 4) ───────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct DateQuery {
+    pub date: Option<String>,
+}
+
+pub async fn attendance_summary(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Query(q): Query<DateQuery>,
+) -> Result<Json<Vec<AttendanceSummaryRow>>, AppError> {
+    require_admin_or_aom(&claims)?;
+    let date = q
+        .date
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::attendance_summary(
+        &*conn,
+        &date,
+        scope_filter(&claims),
+    )?))
+}
+
+pub async fn das_report(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Query(q): Query<DasReportQuery>,
+) -> Result<Json<Vec<DasReportRow>>, AppError> {
+    require_admin_or_aom(&claims)?;
+    if let Some(id) = q.school_id {
+        crate::auth::enforce_school_scope(&claims, id)?;
     }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let start_date = q.start_date.unwrap_or_else(|| today.clone());
+    let end_date = q.end_date.unwrap_or(today);
+    let group_by = q.group_by.unwrap_or_else(|| "school".to_string());
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::das_report(
+        &*conn,
+        &start_date,
+        &end_date,
+        &group_by,
+        q.school_id,
+        scope_filter(&claims),
+    )?))
+}
 
-    // Overwrite the live database from the staged one using SQLite's backup API.
-    // This works safely even while the connection pool has other active connections.
-    let mut dst_conn = state.db.get().map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
-    let src_conn = rusqlite::Connection::open(&staging_path)
-        .map_err(|e| AppError::bad_request(format!("Cannot open staged DB for restore: {e}")))?;
+pub async fn chronic_absentees(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Vec<ChronicAbsentee>>, AppError> {
+    require_admin_or_aom(&claims)?;
+    let since = chrono::Local::now()
+        .checked_sub_signed(chrono::Duration::days(30))
+        .unwrap_or_else(|| chrono::Local::now())
+        .format("%Y-%m-%d")
+        .to_string();
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::chronic_absentees(
+        &*conn,
+        &since,
+        scope_filter(&claims),
+    )?))
+}
 
-    let backup = rusqlite::backup::Backup::new(&src_conn, &mut dst_conn)
-        .map_err(|e| AppError::internal(format!("Backup init failed: {e}")))?;
-    backup.step(-1)
-        .map_err(|e| AppError::internal(format!("Backup step failed: {e}")))?;
-    drop(backup);
-    drop(src_conn);
-    let _ = std::fs::remove_file(&staging_path);
-
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "size_bytes": bytes.len(),
-        "path": live_path,
-    })))
+pub async fn subject_attendance(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Query(q): Query<DateQuery>,
+) -> Result<Json<Vec<SubjectAttendanceRow>>, AppError> {
+    require_admin_or_aom(&claims)?;
+    let date = q
+        .date
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::subject_attendance(
+        &*conn,
+        &date,
+        scope_filter(&claims),
+    )?))
 }

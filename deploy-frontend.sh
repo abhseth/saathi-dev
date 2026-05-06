@@ -12,6 +12,22 @@ set -e
 #
 #    Then update the alias at the bottom of this script.
 
+if [ -z "${DEPLOY_ENV}" ] || { [ "${DEPLOY_ENV}" != "production" ] && [ "${DEPLOY_ENV}" != "staging" ]; }; then
+  echo "Error: DEPLOY_ENV must be set to 'production' or 'staging'." >&2
+  exit 1
+fi
+
+if [ "${DEPLOY_ENV}" = "production" ]; then
+  echo "You are about to deploy to PRODUCTION (saathi-pink.vercel.app). Type 'deploy' to confirm:"
+  read -r CONFIRM
+  if [ "${CONFIRM}" != "deploy" ]; then
+    echo "Aborting production deploy." >&2
+    exit 1
+  fi
+else
+  echo "Deploying to STAGING..."
+fi
+
 REPO=$(cd "$(dirname "$0")" && pwd)
 cd "$REPO/frontend"
 
@@ -32,14 +48,20 @@ rm -f "$LOG"
 
 echo ""
 echo "Deployed: $DEPLOY_URL"
-echo ""
-echo "Aliasing saathi-pink.vercel.app → this deployment..."
-# TODO: Change this alias to your NEW dev project's URL
-npx vercel@latest alias set "$DEPLOY_URL" saathi-pink.vercel.app --scope abhseth-8942s-projects || {
-  echo ""
-  echo "Alias did not auto-apply. Run manually:"
-  echo "  npx vercel@latest alias set $DEPLOY_URL saathi-pink.vercel.app --scope abhseth-8942s-projects"
-}
 
-echo ""
-echo "Live: https://saathi-pink.vercel.app"
+if [ "${DEPLOY_ENV}" = "production" ]; then
+  echo ""
+  echo "Aliasing saathi-pink.vercel.app → this deployment..."
+  # TODO: Change this alias to your NEW dev project's URL
+  npx vercel@latest alias set "$DEPLOY_URL" saathi-pink.vercel.app --scope abhseth-8942s-projects || {
+    echo ""
+    echo "Alias did not auto-apply. Run manually:"
+    echo "  npx vercel@latest alias set $DEPLOY_URL saathi-pink.vercel.app --scope abhseth-8942s-projects"
+  }
+
+  echo ""
+  echo "Live: https://saathi-pink.vercel.app"
+else
+  echo ""
+  echo "Staging deploy complete. Raw URL: $DEPLOY_URL"
+fi

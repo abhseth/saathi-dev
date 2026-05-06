@@ -40,4 +40,12 @@ The SAATHI Dashboard will need new charts:
 ## 4. Implementation Priorities
 - **Backend:** Create a set of dedicated Reporting endpoints (e.g., `/api/reports/attendance/summary`).
 - **Frontend:** Integrate a charting library (e.g., `recharts` or `chart.js`) into the existing `components.tsx`.
-- **Optimization:** Use SQLite Indexes on `attendance_records(session_date)` and `lecture_sessions(school_id, session_date)`.
+## 5. Workflow & UX Maturation (Roadmap Alignment)
+
+As per the Phase 4 roadmap, this phase also covers deep product trustworthiness and usability.
+
+### Deferred UI Polish (Tracking):
+- **Tab Transitions:** Implement CSS-only fade/slide animations for the School Profile form tabs to eliminate the "jarring" switch effect.
+- **Form Error Polish:** Refine the localized error banner added in Phase 1 (Batch 2) with better animations and "shake" effects on failed submission.
+- **Accessibility (A11y):** Standardize `:focus-visible` ring across all custom buttons and ensure proper ARIA roles for the new Master Data forms.
+- **Micro-interactions:** Add loading/success states for all secondary actions (Import/Export).
