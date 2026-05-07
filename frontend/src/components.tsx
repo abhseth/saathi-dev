@@ -204,6 +204,7 @@ type TopbarProps = {
   onSearchChange: (value: string) => void;
   onCreateClick: () => void;
   onLogout: () => void;
+  onChangePasswordClick: () => void;
   mobileBackLabel?: string;
   onMobileBack?: () => void;
   hideSearch?: boolean;
@@ -216,6 +217,7 @@ export function Topbar({
   onSearchChange,
   onCreateClick,
   onLogout,
+  onChangePasswordClick,
   mobileBackLabel,
   onMobileBack,
   hideSearch,
@@ -253,6 +255,9 @@ export function Topbar({
               {currentUser.display_name}
               <em>{currentUser.role}</em>
             </span>
+            <button type="button" className="ghost-button" onClick={onChangePasswordClick}>
+              Change Password
+            </button>
             <button type="button" className="ghost-button" onClick={onLogout}>
               Sign out
             </button>
@@ -263,6 +268,103 @@ export function Topbar({
         </>
       )}
     </header>
+  );
+}
+
+/* ── Change Password Modal ─────────────────────────────────────────────── */
+
+export function ChangePasswordModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (currentPassword: string, newPassword: string) => Promise<void>;
+}) {
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (newPassword.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmit(currentPassword, newPassword);
+      onClose();
+    } catch (caught) {
+      setError(String(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-password-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header>
+          <h3 id="change-password-title">Change Password</h3>
+          <button className="ghost-button" onClick={onClose} aria-label="Close">
+            Close
+          </button>
+        </header>
+        <form onSubmit={handleSubmit} className="master-form">
+          <label>
+            Current Password
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            New Password
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              minLength={6}
+            />
+          </label>
+          <label>
+            Confirm New Password
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={6}
+            />
+          </label>
+          {error ? <p className="form-error">{error}</p> : null}
+          <div className="form-actions">
+            <button type="button" className="secondary-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="primary-action" disabled={submitting}>
+              {submitting ? "Saving…" : "Change Password"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -471,6 +573,7 @@ type MobileMoreMenuProps = {
   onClose: () => void;
   onToolClick: (toolId: string) => void;
   onLogout: () => void;
+  onChangePassword: () => void;
 };
 
 export function MobileMoreMenu({
@@ -478,6 +581,7 @@ export function MobileMoreMenu({
   onClose,
   onToolClick,
   onLogout,
+  onChangePassword,
 }: MobileMoreMenuProps) {
   function handle(fn?: () => void) {
     if (fn) fn();
@@ -510,6 +614,16 @@ export function MobileMoreMenu({
         </div>
 
         <div className="mobile-more-group">
+          <button
+            className="mobile-more-row"
+            onClick={() => handle(onChangePassword)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <span>Change Password</span>
+          </button>
           <button
             className="mobile-more-row mobile-more-row-signout"
             onClick={() => handle(onLogout)}
@@ -712,6 +826,7 @@ export function MasterDataPanel({
   sipImportPreview: { sourcePath: string; preview: SipMasterImportPreview } | null;
   onClose: () => void;
   onCreateSchool: (input: SchoolProfileDraft) => void;
+  onUpdateSchool: (input: SchoolProfileDraft & { id: number }) => void;
   onSaveRegion: (input: {
     id?: number;
     name: string;
@@ -721,6 +836,9 @@ export function MasterDataPanel({
     regional_business_head_name: string;
     regional_business_head_mobile: string;
     regional_business_head_email: string;
+    regional_deputy_academic_head_name: string;
+    regional_deputy_academic_head_mobile: string;
+    regional_deputy_academic_head_email: string;
   }) => void;
   onCreateLectureModel: (input: { name: string; days_per_week: number; lectures_per_day: number }) => void;
   onSaveClassPlan: (input: {
@@ -771,7 +889,19 @@ export function MasterDataPanel({
 }) {
   const isAdmin = currentUserRole === "admin";
   const [showSchoolForm, setShowSchoolForm] = React.useState(false);
+  const [editingSchoolId, setEditingSchoolId] = React.useState<number | null>(null);
   const [showRegionForm, setShowRegionForm] = React.useState(false);
+  const [editingRegionId, setEditingRegionId] = React.useState<number | null>(null);
+  const [confirmDeleteRegionId, setConfirmDeleteRegionId] = React.useState<number | null>(null);
+  const [collapsedSections, setCollapsedSections] = React.useState({
+    schools: false,
+    regions: false,
+    batches: false,
+    students: false,
+  });
+  function toggleSection(key: "schools" | "regions" | "batches" | "students") {
+    setCollapsedSections((s) => ({ ...s, [key]: !s[key] }));
+  }
   const [showLectureModelForm, setShowLectureModelForm] = React.useState(false);
   const [showClassPlanForm, setShowClassPlanForm] = React.useState(false);
   const [showBatchForm, setShowBatchForm] = React.useState(false);
@@ -807,7 +937,19 @@ export function MasterDataPanel({
     vp_tagging: "",
   });
 
-  const [regionForm, setRegionForm] = React.useState({
+  const [regionForm, setRegionForm] = React.useState<{
+    id?: number;
+    name: string;
+    regional_academic_head_name: string;
+    regional_academic_head_mobile: string;
+    regional_academic_head_email: string;
+    regional_business_head_name: string;
+    regional_business_head_mobile: string;
+    regional_business_head_email: string;
+    regional_deputy_academic_head_name: string;
+    regional_deputy_academic_head_mobile: string;
+    regional_deputy_academic_head_email: string;
+  }>({
     name: "",
     regional_academic_head_name: "",
     regional_academic_head_mobile: "",
@@ -815,6 +957,9 @@ export function MasterDataPanel({
     regional_business_head_name: "",
     regional_business_head_mobile: "",
     regional_business_head_email: "",
+    regional_deputy_academic_head_name: "",
+    regional_deputy_academic_head_mobile: "",
+    regional_deputy_academic_head_email: "",
   });
 
   const [lectureModelForm, setLectureModelForm] = React.useState({
@@ -866,7 +1011,7 @@ export function MasterDataPanel({
     setIsSaving(true);
     setFormError("");
     try {
-      await onCreateSchool({
+      const draft = {
         ...schoolForm,
         region_name: "",
         school_spoc_name: "",
@@ -885,8 +1030,14 @@ export function MasterDataPanel({
         aom_mobile: "",
         aom_email: "",
         mapped_vp_center: "",
-      });
+      };
+      if (editingSchoolId != null) {
+        await onUpdateSchool({ ...draft, id: editingSchoolId });
+      } else {
+        await onCreateSchool(draft);
+      }
       setShowSchoolForm(false);
+      setEditingSchoolId(null);
       setSchoolForm({
         name: "",
         region_id: null,
@@ -920,6 +1071,7 @@ export function MasterDataPanel({
     try {
       await onSaveRegion(regionForm);
       setShowRegionForm(false);
+      setEditingRegionId(null);
       setRegionForm({
         name: "",
         regional_academic_head_name: "",
@@ -928,6 +1080,9 @@ export function MasterDataPanel({
         regional_business_head_name: "",
         regional_business_head_mobile: "",
         regional_business_head_email: "",
+        regional_deputy_academic_head_name: "",
+        regional_deputy_academic_head_mobile: "",
+        regional_deputy_academic_head_email: "",
       });
     } catch (caught) {
       setFormError(String(caught));
@@ -1049,12 +1204,27 @@ export function MasterDataPanel({
         <h2>Master Data</h2>
         <div className="actions">
           {isAdmin && (
-            <button className="primary-action" onClick={() => setShowSchoolForm(true)}>
+            <button className="primary-action" onClick={() => { setEditingSchoolId(null); setShowSchoolForm(true); }}>
               Add School
             </button>
           )}
           {isAdmin && (
-            <button className="primary-action" onClick={() => setShowRegionForm(true)}>
+            <button className="primary-action" onClick={() => {
+              setEditingRegionId(null);
+              setRegionForm({
+                name: "",
+                regional_academic_head_name: "",
+                regional_academic_head_mobile: "",
+                regional_academic_head_email: "",
+                regional_business_head_name: "",
+                regional_business_head_mobile: "",
+                regional_business_head_email: "",
+                regional_deputy_academic_head_name: "",
+                regional_deputy_academic_head_mobile: "",
+                regional_deputy_academic_head_email: "",
+              });
+              setShowRegionForm(true);
+            }}>
               Add Region
             </button>
           )}
@@ -1118,8 +1288,16 @@ export function MasterDataPanel({
             <h3>Active Schools</h3>
             <p>Drop preserves history and hides a school from active operations. Permanent delete is admin-only and should be used only for mistaken records.</p>
           </div>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => toggleSection("schools")}
+            aria-label={collapsedSections.schools ? "Expand schools" : "Collapse schools"}
+          >
+            {collapsedSections.schools ? "▶" : "▼"}
+          </button>
         </header>
-        {schools.length === 0 ? (
+        {!collapsedSections.schools && (schools.length === 0 ? (
           <p className="empty-state">No active schools.</p>
         ) : (
           <table className="data-table">
@@ -1152,12 +1330,41 @@ export function MasterDataPanel({
                         Drop
                       </button>
                       {isAdmin && (
-                        <button
-                          className="secondary-button"
-                          onClick={() => void previewSchoolDelete(school)}
-                        >
-                          Delete
-                        </button>
+                        <>
+                          <button
+                            className="secondary-button"
+                            onClick={() => {
+                              setEditingSchoolId(school.id);
+                              setSchoolForm({
+                                name: school.name,
+                                region_id: school.region_id,
+                                program_model: school.program_model,
+                                distance_classification: school.distance_classification,
+                                sip_academic_owner_role: school.sip_academic_owner_role,
+                                sip_academic_owner_name: school.sip_academic_owner_name,
+                                sip_academic_owner_mobile: school.sip_academic_owner_mobile,
+                                sip_academic_owner_email: school.sip_academic_owner_email,
+                                center_head_name: school.center_head_name,
+                                center_head_mobile: school.center_head_mobile,
+                                center_head_email: school.center_head_email,
+                                principal_name: school.principal_name,
+                                principal_mobile: school.principal_mobile,
+                                principal_email: school.principal_email,
+                                vp_tagging: school.vp_tagging,
+                              });
+                              setSchoolTab("basic");
+                              setShowSchoolForm(true);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="secondary-button"
+                            onClick={() => void previewSchoolDelete(school)}
+                          >
+                            Delete
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -1165,7 +1372,7 @@ export function MasterDataPanel({
               ))}
             </tbody>
           </table>
-        )}
+        ))}
       </section>
 
       {schoolPendingDelete && (
@@ -1243,14 +1450,149 @@ export function MasterDataPanel({
         </div>
       )}
 
+      <section className="master-data-section" aria-label="Regions">
+        <header className="section-header">
+          <div>
+            <h3>Regions</h3>
+            <p>Regions group schools geographically. Deleting a region requires moving its schools to another region first.</p>
+          </div>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => toggleSection("regions")}
+            aria-label={collapsedSections.regions ? "Expand regions" : "Collapse regions"}
+          >
+            {collapsedSections.regions ? "▶" : "▼"}
+          </button>
+        </header>
+        {!collapsedSections.regions && (regions.length === 0 ? (
+          <p className="empty-state">No regions configured yet.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>RAH</th>
+                <th>RBH</th>
+                <th>Deputy RAH</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {regions.map((region) => (
+                <tr key={region.id}>
+                  <td>{region.name}</td>
+                  <td>{region.regional_academic_head_name || "—"}</td>
+                  <td>{region.regional_business_head_name || "—"}</td>
+                  <td>{region.regional_deputy_academic_head_name || "—"}</td>
+                  <td>
+                    <div className="actions">
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setEditingRegionId(region.id);
+                          setRegionForm({
+                            id: region.id,
+                            name: region.name,
+                            regional_academic_head_name: region.regional_academic_head_name,
+                            regional_academic_head_mobile: region.regional_academic_head_mobile,
+                            regional_academic_head_email: region.regional_academic_head_email,
+                            regional_business_head_name: region.regional_business_head_name,
+                            regional_business_head_mobile: region.regional_business_head_mobile,
+                            regional_business_head_email: region.regional_business_head_email,
+                            regional_deputy_academic_head_name: region.regional_deputy_academic_head_name,
+                            regional_deputy_academic_head_mobile: region.regional_deputy_academic_head_mobile,
+                            regional_deputy_academic_head_email: region.regional_deputy_academic_head_email,
+                          });
+                          setShowRegionForm(true);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      {isAdmin && (
+                        <button
+                          className="secondary-button"
+                          onClick={() => setConfirmDeleteRegionId(region.id)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ))}
+      </section>
+
+      {confirmDeleteRegionId != null && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setConfirmDeleteRegionId(null)}>
+          <section
+            className="modal-card delete-impact-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="region-delete-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <h3 id="region-delete-title">Delete Region</h3>
+                <p>
+                  Region <strong>{regions.find((r) => r.id === confirmDeleteRegionId)?.name}</strong> will be permanently deleted.
+                </p>
+              </div>
+              <button className="ghost-button" onClick={() => setConfirmDeleteRegionId(null)} aria-label="Close">
+                Close
+              </button>
+            </header>
+            {regions.find((r) => r.id === confirmDeleteRegionId) && schools.some((s) => s.region_id === confirmDeleteRegionId) ? (
+              <>
+                <p className="form-error">This region has schools mapped to it. Move those schools to another region first.</p>
+                <div className="actions">
+                  <button className="secondary-button" onClick={() => setConfirmDeleteRegionId(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="actions">
+                <button
+                  className="danger-button"
+                  onClick={() => {
+                    onDeleteRegion(confirmDeleteRegionId);
+                    setConfirmDeleteRegionId(null);
+                  }}
+                >
+                  Permanently Delete Region
+                </button>
+                <button className="secondary-button" onClick={() => setConfirmDeleteRegionId(null)}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
       <section className="master-data-section" aria-label="Batches">
         <header className="section-header">
           <div>
             <h3>Batches</h3>
             <p>Concrete teachable groups under class offerings. Example: Class XI JEE Weekday can have Batch A and Batch B.</p>
           </div>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => toggleSection("batches")}
+            aria-label={collapsedSections.batches ? "Expand batches" : "Collapse batches"}
+          >
+            {collapsedSections.batches ? "▶" : "▼"}
+          </button>
         </header>
-        {showBatchForm && (
+        {!collapsedSections.batches && (
+          <>
+            {showBatchForm && (
           <form className="inline-edit-form" onSubmit={submitBatch}>
             <label>
               Class Offering
@@ -1347,6 +1689,8 @@ export function MasterDataPanel({
             </tbody>
           </table>
         )}
+          </>
+        )}
       </section>
 
       <section className="master-data-section" aria-label="Students">
@@ -1410,9 +1754,19 @@ export function MasterDataPanel({
             >
               Import Students
             </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => toggleSection("students")}
+              aria-label={collapsedSections.students ? "Expand students" : "Collapse students"}
+            >
+              {collapsedSections.students ? "▶" : "▼"}
+            </button>
           </div>
         </header>
-        {!studentSchoolId ? (
+        {!collapsedSections.students && (
+          <>
+            {!studentSchoolId ? (
           <p className="empty-state">Select a school to view its students. Avoid loading all schools into one table.</p>
         ) : students.length === 0 ? (
           <p className="empty-state">No students imported yet.</p>
@@ -1467,13 +1821,15 @@ export function MasterDataPanel({
             </div>
           </>
         )}
+          </>
+        )}
       </section>
 
       {showSchoolForm &&
         createPortal(
-          <div role="button" tabIndex={0} aria-label="Close dialog" className="master-form-overlay" onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); } }} onClick={() => setShowSchoolForm(false)}>
+          <div role="button" tabIndex={0} aria-label="Close dialog" className="master-form-overlay" onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); } }} onClick={() => { setShowSchoolForm(false); setEditingSchoolId(null); }}>
             <div className="master-form" onClick={(e) => e.stopPropagation()}>
-              <h3>Add School</h3>
+              <h3>{editingSchoolId != null ? "Edit School" : "Add School"}</h3>
               <form onSubmit={submitSchool} className="school-profile-form">
                 <div className="form-tabs">
                   {(["basic", "sip", "center", "principal"] as const).map((t) => (
@@ -1672,7 +2028,7 @@ export function MasterDataPanel({
         createPortal(
           <div role="button" tabIndex={0} aria-label="Close dialog" className="master-form-overlay" onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); } }} onClick={() => setShowRegionForm(false)}>
             <div className="master-form" onClick={(e) => e.stopPropagation()}>
-              <h3>Add Region</h3>
+              <h3>{editingRegionId ? "Edit Region" : "Add Region"}</h3>
               <form onSubmit={submitRegion} className="region-form">
                 <fieldset>
                   <legend>Region Info</legend>
@@ -1727,6 +2083,30 @@ export function MasterDataPanel({
                     <input
                       value={regionForm.regional_business_head_email}
                       onChange={(e) => setRegionForm((s) => ({ ...s, regional_business_head_email: e.target.value }))}
+                    />
+                  </label>
+                </fieldset>
+                <fieldset>
+                  <legend>Deputy Regional Academic Head (Deputy RAH)</legend>
+                  <label>
+                    Deputy RAH Name
+                    <input
+                      value={regionForm.regional_deputy_academic_head_name}
+                      onChange={(e) => setRegionForm((s) => ({ ...s, regional_deputy_academic_head_name: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Deputy RAH Mobile
+                    <input
+                      value={regionForm.regional_deputy_academic_head_mobile}
+                      onChange={(e) => setRegionForm((s) => ({ ...s, regional_deputy_academic_head_mobile: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Deputy RAH Email
+                    <input
+                      value={regionForm.regional_deputy_academic_head_email}
+                      onChange={(e) => setRegionForm((s) => ({ ...s, regional_deputy_academic_head_email: e.target.value }))}
                     />
                   </label>
                 </fieldset>
@@ -2598,6 +2978,7 @@ function normalizeFacultyRole(role: string | null | undefined) {
 
 export function DirectoryPanel({
   schools,
+  regions = [],
   facultyMembers = [],
   facultyMemberships = {},
   users = [],
@@ -2605,6 +2986,7 @@ export function DirectoryPanel({
   onLoadFacultyMemberships,
 }: {
   schools: School[];
+  regions?: Region[];
   facultyMembers?: FacultyMember[];
   facultyMemberships?: Record<number, FacultySchoolMembership[]>;
   users?: AppUser[];
@@ -2676,14 +3058,61 @@ export function DirectoryPanel({
 
   const contacts = React.useMemo(() => {
     const rows: DirectoryContact[] = [];
+    regions.forEach((region) => {
+      if ((region.regional_academic_head_name ?? "").trim() || (region.regional_academic_head_mobile ?? "").trim() || (region.regional_academic_head_email ?? "").trim()) {
+        rows.push({
+          id: `region-${region.id}-rah`,
+          name: (region.regional_academic_head_name ?? "").trim() || "Unnamed contact",
+          role: "Regional Academic Head",
+          contactType: "Internal",
+          schoolName: region.name,
+          regionName: region.name,
+          source: "Region Master",
+          mobileNumbers: splitContacts(region.regional_academic_head_mobile ?? ""),
+          emails: splitContacts(region.regional_academic_head_email ?? ""),
+          tags: [region.name, "Regional Academic Head", "Region Master"],
+          active: true,
+        });
+      }
+      if ((region.regional_business_head_name ?? "").trim() || (region.regional_business_head_mobile ?? "").trim() || (region.regional_business_head_email ?? "").trim()) {
+        rows.push({
+          id: `region-${region.id}-rbh`,
+          name: (region.regional_business_head_name ?? "").trim() || "Unnamed contact",
+          role: "Regional Business Head",
+          contactType: "Internal",
+          schoolName: region.name,
+          regionName: region.name,
+          source: "Region Master",
+          mobileNumbers: splitContacts(region.regional_business_head_mobile ?? ""),
+          emails: splitContacts(region.regional_business_head_email ?? ""),
+          tags: [region.name, "Regional Business Head", "Region Master"],
+          active: true,
+        });
+      }
+      if ((region.regional_deputy_academic_head_name ?? "").trim() || (region.regional_deputy_academic_head_mobile ?? "").trim() || (region.regional_deputy_academic_head_email ?? "").trim()) {
+        rows.push({
+          id: `region-${region.id}-deputy-rah`,
+          name: (region.regional_deputy_academic_head_name ?? "").trim() || "Unnamed contact",
+          role: "Deputy Regional Academic Head",
+          contactType: "Internal",
+          schoolName: region.name,
+          regionName: region.name,
+          source: "Region Master",
+          mobileNumbers: splitContacts(region.regional_deputy_academic_head_mobile ?? ""),
+          emails: splitContacts(region.regional_deputy_academic_head_email ?? ""),
+          tags: [region.name, "Deputy Regional Academic Head", "Region Master"],
+          active: true,
+        });
+      }
+    });
     schools.forEach((school) => {
       addSchoolContact(rows, school, "Principal", school.principal_name, school.principal_mobile, school.principal_email, "External", "School Master");
       addSchoolContact(rows, school, "School SPOC", school.school_spoc_name, school.school_spoc_mobile, school.school_spoc_email, "External", "School Master");
       addSchoolContact(rows, school, "Center Head", school.center_head_name, school.center_head_mobile, school.center_head_email, "Internal", "School Master");
-      addSchoolContact(rows, school, school.sip_academic_owner_role || "SIP Academic Head", school.sip_academic_owner_name, school.sip_academic_owner_mobile, school.sip_academic_owner_email, "Internal", "School Master");
-      addSchoolContact(rows, school, "RAH / Academic SPOC", school.central_academic_spoc_name, school.central_academic_spoc_mobile, school.central_academic_spoc_email, "Internal", "School Master");
-      addSchoolContact(rows, school, "RBH / Business SPOC", school.central_business_spoc_name || school.bh_name, school.central_business_spoc_mobile || school.bh_mobile, school.central_business_spoc_email || school.bh_email, "Internal", "School Master");
-      addSchoolContact(rows, school, "AOM", school.aom_name, school.aom_mobile, school.aom_email, "Internal", "School Master");
+      addSchoolContact(rows, school, (school.sip_academic_owner_role ?? "").trim() || "SIP Academic Head", school.sip_academic_owner_name ?? "", school.sip_academic_owner_mobile ?? "", school.sip_academic_owner_email ?? "", "Internal", "School Master");
+      addSchoolContact(rows, school, "RAH / Academic SPOC", school.central_academic_spoc_name ?? "", school.central_academic_spoc_mobile ?? "", school.central_academic_spoc_email ?? "", "Internal", "School Master");
+      addSchoolContact(rows, school, "RBH / Business SPOC", (school.central_business_spoc_name ?? "").trim() || (school.bh_name ?? "").trim(), (school.central_business_spoc_mobile ?? "").trim() || (school.bh_mobile ?? "").trim(), (school.central_business_spoc_email ?? "").trim() || (school.bh_email ?? "").trim(), "Internal", "School Master");
+      addSchoolContact(rows, school, "AOM", school.aom_name ?? "", school.aom_mobile ?? "", school.aom_email ?? "", "Internal", "School Master");
     });
 
     facultyMembers.forEach((member) => {
@@ -2720,9 +3149,9 @@ export function DirectoryPanel({
         rows.push({
           id: `user-${user.id}`,
           name: user.display_name,
-          role: user.role.toUpperCase(),
+          role: (user.role ?? "").toUpperCase(),
           contactType: "Internal",
-          schoolName: user.school_ids.map((id) => schools.find((s) => s.id === id)?.name ?? id).join(", ") || "All schools",
+          schoolName: (user.school_ids ?? []).map((id) => schools.find((s) => s.id === id)?.name ?? id).join(", ") || "All schools",
           regionName: "",
           source: "User Account",
           mobileNumbers: [],
@@ -3058,6 +3487,7 @@ export function UserManagementPanel({
   onUpdateUser,
   onDeleteUser,
   onChangePassword,
+  onResetPassword,
 }: {
   users: AppUser[];
   schools: School[];
@@ -3067,7 +3497,40 @@ export function UserManagementPanel({
   onUpdateUser: (draft: UpdateUserDraft) => Promise<void>;
   onDeleteUser: (id: number) => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  onResetPassword: (id: number, newPassword: string) => Promise<void>;
 }) {
+  const [resetUserId, setResetUserId] = React.useState<number | null>(null);
+  const [resetPassword, setResetPassword] = React.useState("");
+  const [resetConfirm, setResetConfirm] = React.useState("");
+  const [resetError, setResetError] = React.useState("");
+  const [resetting, setResetting] = React.useState(false);
+  const isAdmin = currentUser?.role === "admin";
+
+  async function handleResetSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setResetError("");
+    if (resetPassword.length < 6) {
+      setResetError("Password must be at least 6 characters.");
+      return;
+    }
+    if (resetPassword !== resetConfirm) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+    if (resetUserId == null) return;
+    setResetting(true);
+    try {
+      await onResetPassword(resetUserId, resetPassword);
+      setResetUserId(null);
+      setResetPassword("");
+      setResetConfirm("");
+    } catch (caught) {
+      setResetError(String(caught));
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <section className="ticket-modal" aria-label="User management">
       <header>
@@ -3100,7 +3563,7 @@ export function UserManagementPanel({
                     .join(", ")}
                 </td>
                 <td>{user.is_active ? "Yes" : "No"}</td>
-                <td>
+                <td style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                   <button
                     className={user.is_active ? "secondary-button" : "primary-action"}
                     onClick={() =>
@@ -3116,11 +3579,76 @@ export function UserManagementPanel({
                   >
                     {user.is_active ? "Deactivate" : "Activate"}
                   </button>
+                  {isAdmin && user.id !== currentUser?.id && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setResetUserId(user.id);
+                        setResetPassword("");
+                        setResetConfirm("");
+                        setResetError("");
+                      }}
+                    >
+                      Reset Password
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {resetUserId != null && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setResetUserId(null)}>
+          <section
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-password-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h3 id="reset-password-title">
+                Reset Password for {users.find((u) => u.id === resetUserId)?.display_name}
+              </h3>
+              <button className="ghost-button" onClick={() => setResetUserId(null)} aria-label="Close">
+                Close
+              </button>
+            </header>
+            <form onSubmit={handleResetSubmit} className="master-form">
+              <label>
+                New Password
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </label>
+              <label>
+                Confirm New Password
+                <input
+                  type="password"
+                  value={resetConfirm}
+                  onChange={(e) => setResetConfirm(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </label>
+              {resetError ? <p className="form-error">{resetError}</p> : null}
+              <div className="form-actions">
+                <button type="button" className="secondary-button" onClick={() => setResetUserId(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="primary-action" disabled={resetting}>
+                  {resetting ? "Resetting…" : "Reset Password"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
     </section>
   );

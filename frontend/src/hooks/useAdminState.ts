@@ -44,6 +44,7 @@ export interface UseAdminStateReturn {
   handleUpdateUser: (draft: UpdateUserDraft) => Promise<void>;
   handleDeleteUser: (id: number) => Promise<void>;
   handleChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  handleResetPassword: (id: number, newPassword: string) => Promise<void>;
   saveSlaPolicy: (issueCategory: string, hours: number) => Promise<void>;
   saveAssignmentRule: (queue: string, assignee: string, isActive: boolean) => Promise<void>;
   saveCommunicationTemplate: (input: {
@@ -168,6 +169,16 @@ export function useAdminState(options: UseAdminStateOptions): UseAdminStateRetur
     }
   }, [onError, onNotice]);
 
+  const handleResetPassword = React.useCallback(async (id: number, newPassword: string) => {
+    try {
+      await api("reset_password", { id, input: { new_password: newPassword } });
+      onNotice("Password reset successfully.");
+      onError("");
+    } catch (caught) {
+      onError(String(caught));
+    }
+  }, [onError, onNotice]);
+
   const saveSlaPolicy = React.useCallback(async (issueCategory: string, hours: number) => {
     try {
       const policy = await api<SlaPolicy>("update_sla_policy", { input: { issue_category: issueCategory, hours } });
@@ -241,6 +252,7 @@ export function useAdminState(options: UseAdminStateOptions): UseAdminStateRetur
     handleUpdateUser,
     handleDeleteUser,
     handleChangePassword,
+    handleResetPassword,
     saveSlaPolicy,
     saveAssignmentRule,
     saveCommunicationTemplate,

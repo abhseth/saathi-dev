@@ -7,6 +7,7 @@ import {
   DirectoryPanel,
   DroppedSchoolsPanel,
   EscalationPolicyPanel,
+  ErrorBoundary,
   FacultyAssignmentsPanel,
   FacultyMembersPanel,
   MasterDataPanel,
@@ -18,6 +19,7 @@ import {
   TimetablePanel,
   HolidaysPanel,
 } from "../../components";
+import { BatchesPanel } from "../batches/BatchesPanel";
 import { SubstitutionCommandCenter } from "../substitution/SubstitutionCommandCenter";
 import { LeaveSwapPanel } from "../substitution/LeaveSwapPanel";
 import { AlertInboxPanel } from "../automation/AlertInboxPanel";
@@ -193,6 +195,7 @@ export const AdminPanelRouter = React.memo(function AdminPanelRouter({
           }
           onClose={onClose}
           onCreateSchool={master.createSchool}
+          onUpdateSchool={master.updateSchool}
           onSaveRegion={master.saveRegion}
           onCreateLectureModel={master.createLectureModel}
           onSaveClassPlan={master.saveSchoolClassPlan}
@@ -246,14 +249,17 @@ export const AdminPanelRouter = React.memo(function AdminPanelRouter({
       );
     case "directory":
       return (
-        <DirectoryPanel
-          schools={master.schools}
-          facultyMembers={faculty.facultyMembers}
-          facultyMemberships={faculty.facultyMemberMemberships}
-          users={admin.users}
-          onLoadFacultyMemberships={faculty.loadFacultySchoolMemberships}
-          onExport={master.exportSipMasterExcel}
-        />
+        <ErrorBoundary fallback={<p className="empty-state">Something went wrong loading the Directory. Try refreshing the page.</p>}>
+          <DirectoryPanel
+            schools={master.schools}
+            regions={master.regions}
+            facultyMembers={faculty.facultyMembers}
+            facultyMemberships={faculty.facultyMemberMemberships}
+            users={admin.users}
+            onLoadFacultyMemberships={faculty.loadFacultySchoolMemberships}
+            onExport={master.exportSipMasterExcel}
+          />
+        </ErrorBoundary>
       );
     case "dropped-schools":
       return (
@@ -360,6 +366,8 @@ export const AdminPanelRouter = React.memo(function AdminPanelRouter({
           onDeleteHoliday={faculty.deleteHoliday}
         />
       );
+    case "batches":
+      return <BatchesPanel />;
     default:
       return null;
   }

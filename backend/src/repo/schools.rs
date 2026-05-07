@@ -1,8 +1,9 @@
 use crate::models::{
-    AuditLogEntry, Batch, CreateBatchInput, CreateLectureModelInput, CreateSchoolInput,
-    CreateStudentInput, LectureModel, Paginated, Region, School, SchoolClassPlan,
+    AuditLogEntry, Batch, BatchAnalytics, BatchDetail, CreateBatchInput, CreateLectureModelInput,
+    CreateSchoolInput, CreateStudentInput, LectureModel, Paginated, Region, School, SchoolClassPlan,
     SchoolDeleteImpact, SchoolDeleteImpactItem, SchoolProgramDashboard, SchoolRegionHistory,
-    Student, UpdateBatchInput, UpdateStudentInput, UpsertRegionInput, UpsertSchoolClassPlanInput,
+    Student, UpdateBatchInput, UpdateSchoolInput, UpdateStudentInput, UpsertRegionInput,
+    UpsertSchoolClassPlanInput,
 };
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
@@ -241,6 +242,117 @@ pub fn create_school(
         action,
         actor,
         &format!("{action} school {}", school.name),
+    )?;
+
+    Ok(school)
+}
+
+pub fn update_school(
+    conn: &Connection,
+    input: &UpdateSchoolInput,
+    actor: &str,
+) -> Result<School, String> {
+    validate_nonempty("School", &input.name)?;
+    validate_school_model(&input.program_model)?;
+    validate_distance_classification(&input.distance_classification)?;
+    if let Some(region_id) = input.region_id {
+        get_region(conn, region_id)?;
+    }
+
+    let existing = get_school(conn, input.id)?;
+    let previous_region = existing.region_id;
+
+    conn.execute(
+        "
+        UPDATE schools
+        SET name = ?1,
+            region_id = ?2,
+            program_model = ?3,
+            distance_classification = ?4,
+            sip_academic_owner_role = ?5,
+            sip_academic_owner_name = ?6,
+            sip_academic_owner_mobile = ?7,
+            sip_academic_owner_email = ?8,
+            center_head_name = ?9,
+            center_head_mobile = ?10,
+            center_head_email = ?11,
+            principal_name = ?12,
+            principal_mobile = ?13,
+            principal_email = ?14,
+            school_spoc_name = ?15,
+            school_spoc_mobile = ?16,
+            school_spoc_email = ?17,
+            central_academic_spoc_name = ?18,
+            central_academic_spoc_mobile = ?19,
+            central_academic_spoc_email = ?20,
+            central_business_spoc_name = ?21,
+            central_business_spoc_mobile = ?22,
+            central_business_spoc_email = ?23,
+            bh_name = ?24,
+            bh_mobile = ?25,
+            bh_email = ?26,
+            aom_name = ?27,
+            aom_mobile = ?28,
+            aom_email = ?29,
+            mapped_vp_center = ?30,
+            vp_tagging = ?31
+        WHERE id = ?32
+        ",
+        params![
+            input.name.trim(),
+            input.region_id,
+            input.program_model.trim(),
+            input.distance_classification.trim(),
+            input.sip_academic_owner_role.trim(),
+            input.sip_academic_owner_name.trim(),
+            input.sip_academic_owner_mobile.trim(),
+            input.sip_academic_owner_email.trim(),
+            input.center_head_name.trim(),
+            input.center_head_mobile.trim(),
+            input.center_head_email.trim(),
+            input.principal_name.trim(),
+            input.principal_mobile.trim(),
+            input.principal_email.trim(),
+            input.school_spoc_name.trim(),
+            input.school_spoc_mobile.trim(),
+            input.school_spoc_email.trim(),
+            input.central_academic_spoc_name.trim(),
+            input.central_academic_spoc_mobile.trim(),
+            input.central_academic_spoc_email.trim(),
+            input.central_business_spoc_name.trim(),
+            input.central_business_spoc_mobile.trim(),
+            input.central_business_spoc_email.trim(),
+            input.bh_name.trim(),
+            input.bh_mobile.trim(),
+            input.bh_email.trim(),
+            input.aom_name.trim(),
+            input.aom_mobile.trim(),
+            input.aom_email.trim(),
+            input.mapped_vp_center.trim(),
+            input.vp_tagging.trim(),
+            input.id,
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+
+    let school = get_school(conn, input.id)?;
+    if previous_region != input.region_id {
+        record_school_region_history(
+            conn,
+            school.id,
+            previous_region,
+            &existing.region_name,
+            input.region_id,
+            &school.region_name,
+        )?;
+    }
+    record_audit(
+        conn,
+        "school",
+        school.id,
+        "updated",
+        actor,
+        &format!("updated school {}", school.name),
     )?;
 
     Ok(school)
@@ -635,13 +747,158 @@ pub fn archive_batch(conn: &Connection, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+pub fn get_batch_students(
+    conn: &Connection,
+    batch_id: i64,
+) -> Result<Vec<Student>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT students.id, students.school_id, schools.name, students.name,
+                students.registration_number, students.grade_level, students.program_track,
+                students.track, students.student_mobile, students.student_email,
+                students.father_name, students.father_email, students.father_mobile,
+                students.mother_name, students.mother_email, students.mother_mobile,
+                students.batch_ref_id, COALESCE(batches.batch_id, students.batch_id),
+                students.batch_id, students.created_at
+         FROM students
+         JOIN schools ON schools.id = students.school_id
+         LEFT JOIN batches ON batches.id = students.batch_ref_id
+         WHERE students.batch_ref_id = ?1 AND schools.is_dropped = 0
+         ORDER BY students.name"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map(params![batch_id], |row| {
+        Ok(Student {
+            id: row.get(0)?,
+            school_id: row.get(1)?,
+            school_name: row.get(2)?,
+            name: row.get(3)?,
+            registration_number: row.get(4)?,
+            grade_level: row.get(5)?,
+            program_track: row.get(6)?,
+            track: row.get(7)?,
+            student_mobile: row.get(8)?,
+            student_email: row.get(9)?,
+            father_name: row.get(10)?,
+            father_email: row.get(11)?,
+            father_mobile: row.get(12)?,
+            mother_name: row.get(13)?,
+            mother_email: row.get(14)?,
+            mother_mobile: row.get(15)?,
+            batch_ref_id: row.get(16)?,
+            batch_name: row.get(17)?,
+            batch_id: row.get(18)?,
+            created_at: row.get(19)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+pub fn get_batch_analytics(
+    conn: &Connection,
+    scope_school_ids: Option<&[i64]>,
+) -> Result<BatchAnalytics, String> {
+    let mut sql = String::from(
+        "SELECT batches.id, batches.school_id, schools.name, batches.batch_id,
+                batches.grade_level, batches.track, batches.batch_pattern, batches.capacity,
+                batches.created_at
+         FROM batches
+         JOIN schools ON schools.id = batches.school_id
+         WHERE batches.deleted_at = ''"
+    );
+    let mut p: Vec<rusqlite::types::Value> = Vec::new();
+    if let Some(ids) = scope_school_ids {
+        if !ids.is_empty() {
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            sql.push_str(&format!(" AND batches.school_id IN ({placeholders})"));
+            for id in ids {
+                p.push((*id).into());
+            }
+        }
+    }
+    sql.push_str(" ORDER BY schools.name, batches.grade_level, batches.batch_id");
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let batch_rows = stmt.query_map(rusqlite::params_from_iter(p.iter()), |row| {
+        Ok(Batch {
+            id: row.get(0)?,
+            school_id: row.get(1)?,
+            school_name: row.get(2)?,
+            batch_id: row.get(3)?,
+            grade_level: row.get(4)?,
+            track: row.get(5)?,
+            batch_pattern: row.get(6)?,
+            capacity: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let batches: Vec<Batch> = batch_rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let mut details: Vec<BatchDetail> = Vec::new();
+    let mut total_students: i64 = 0;
+    let mut total_capacity: i64 = 0;
+
+    for batch in batches {
+        let student_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM students WHERE batch_ref_id = ?1",
+            params![batch.id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let faculty_count: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT faculty_id) FROM faculty_assignments WHERE batch_id = ?1 AND is_active = 1",
+            params![batch.id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let active_ticket_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tickets
+             JOIN students ON students.id = tickets.student_id
+             WHERE students.batch_ref_id = ?1 AND tickets.status != 'Resolved' AND tickets.status != 'Closed'",
+            params![batch.id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let upcoming_session_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM timetable_slots
+             WHERE batch_ref_id = ?1 AND session_date >= date('now', 'localtime') AND is_cancelled = 0",
+            params![batch.id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        total_students += student_count;
+        total_capacity += batch.capacity;
+
+        details.push(BatchDetail {
+            batch,
+            student_count,
+            faculty_count,
+            active_ticket_count,
+            upcoming_session_count,
+        });
+    }
+
+    let overall_utilization = if total_capacity > 0 {
+        (total_students as f64 / total_capacity as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(BatchAnalytics {
+        batches: details,
+        total_students,
+        total_capacity,
+        overall_utilization,
+    })
+}
+
 pub fn list_regions(conn: &Connection) -> Result<Vec<Region>, String> {
     let mut stmt = conn
         .prepare(
             "
             SELECT id, name, regional_academic_head_name, regional_academic_head_mobile,
                    regional_academic_head_email, regional_business_head_name,
-                   regional_business_head_mobile, regional_business_head_email, updated_at
+                   regional_business_head_mobile, regional_business_head_email,
+                   regional_deputy_academic_head_name, regional_deputy_academic_head_mobile,
+                   regional_deputy_academic_head_email, updated_at
             FROM regions
             ORDER BY name
             ",
@@ -1282,6 +1539,9 @@ mod tests {
                 regional_business_head_name: "Priya".to_string(),
                 regional_business_head_mobile: "9876543211".to_string(),
                 regional_business_head_email: "priya@example.com".to_string(),
+                regional_deputy_academic_head_name: String::new(),
+                regional_deputy_academic_head_mobile: String::new(),
+                regional_deputy_academic_head_email: String::new(),
             },
             TEST_ACTOR,
         )

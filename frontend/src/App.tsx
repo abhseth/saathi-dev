@@ -2,6 +2,7 @@ import React from "react";
 import { api, login as apiLogin, logout as apiLogout } from "./api";
 import {
   BottomNav,
+  ChangePasswordModal,
   CreateTicketModal,
   LoginScreen,
   Metrics,
@@ -47,6 +48,7 @@ export function App() {
   const [showMobileDetail, setShowMobileDetail] = React.useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = React.useState(false);
   const [adminView, setAdminView] = React.useState<AdminView>(null);
+  const [showChangePassword, setShowChangePassword] = React.useState(false);
   const admin = useAdminState({
     currentUser,
     onError: setError,
@@ -297,6 +299,9 @@ export function App() {
         void faculty.loadHolidays();
         setAdminView("holidays");
         break;
+      case "batches":
+        setAdminView("batches");
+        break;
     }
   }
 
@@ -409,6 +414,7 @@ export function App() {
           onSearchChange={ticket.setSearch}
           onCreateClick={() => ticket.setIsCreating(true)}
           onLogout={handleLogout}
+          onChangePasswordClick={() => setShowChangePassword(true)}
           mobileBackLabel={showMobileDetail ? "Tickets" : undefined}
           onMobileBack={isMobile && showMobileDetail ? () => setShowMobileDetail(false) : undefined}
         />
@@ -523,6 +529,14 @@ export function App() {
           onUpdateUser={admin.handleUpdateUser}
           onDeleteUser={admin.handleDeleteUser}
           onChangePassword={admin.handleChangePassword}
+          onResetPassword={admin.handleResetPassword}
+        />
+      ) : null}
+
+      {showChangePassword ? (
+        <ChangePasswordModal
+          onClose={() => setShowChangePassword(false)}
+          onSubmit={admin.handleChangePassword}
         />
       ) : null}
 
@@ -551,6 +565,7 @@ export function App() {
           onClose={() => setMobileMoreOpen(false)}
           onToolClick={(id) => { handleToolClick(id); setShowMobileDetail(false); }}
           onLogout={handleLogout}
+          onChangePassword={() => setShowChangePassword(true)}
         />
       )}
     </main>

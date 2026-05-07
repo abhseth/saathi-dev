@@ -70,6 +70,27 @@ pub async fn create_school(
     )?))
 }
 
+pub async fn update_school(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<i64>,
+    Json(mut input): Json<UpdateSchoolInput>,
+) -> Result<Json<School>, AppError> {
+    require_admin_or_aom(&claims)?;
+    input.id = id;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let existing = repositories::get_school(&*conn, id)?;
+    enforce_school_scope(&claims, existing.id)?;
+    Ok(Json(repositories::update_school(
+        &*conn,
+        &input,
+        &claims.display_name,
+    )?))
+}
+
 pub async fn drop_school(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -338,6 +359,45 @@ pub async fn archive_batch(
     enforce_school_scope(&claims, existing.school_id)?;
     repositories::archive_batch(&*conn, id)?;
     Ok(Json(()))
+}
+
+pub async fn get_batch(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Json<Batch>, AppError> {
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let batch = repositories::get_batch(&*conn, id)?;
+    enforce_school_scope(&claims, batch.school_id)?;
+    Ok(Json(batch))
+}
+
+pub async fn get_batch_students(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<Student>>, AppError> {
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    let batch = repositories::get_batch(&*conn, id)?;
+    enforce_school_scope(&claims, batch.school_id)?;
+    Ok(Json(repositories::get_batch_students(&*conn, id)?))
+}
+
+pub async fn batch_analytics(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<BatchAnalytics>, AppError> {
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::internal(format!("DB pool error: {e}")))?;
+    Ok(Json(repositories::get_batch_analytics(&*conn, scope_filter(&claims))?))
 }
 
 pub async fn list_lecture_models(

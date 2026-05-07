@@ -109,6 +109,7 @@ export interface UseMasterDataStateReturn {
 
   // Mutations
   createSchool: (input: SchoolProfileDraft) => Promise<void>;
+  updateSchool: (input: SchoolProfileDraft & { id: number }) => Promise<void>;
   dropSchool: (id: number, reason: string) => Promise<void>;
   deleteSchool: (id: number) => Promise<void>;
   restoreSchool: (id: number) => Promise<void>;
@@ -121,6 +122,9 @@ export interface UseMasterDataStateReturn {
     regional_business_head_name: string;
     regional_business_head_mobile: string;
     regional_business_head_email: string;
+    regional_deputy_academic_head_name: string;
+    regional_deputy_academic_head_mobile: string;
+    regional_deputy_academic_head_email: string;
   }) => Promise<void>;
   deleteRegion: (id: number) => Promise<void>;
   remapAndDeleteRegion: (
@@ -310,6 +314,21 @@ export function useMasterDataState(options: UseMasterDataStateOptions): UseMaste
       await loadProgramDashboard();
       await onLoadAuditLog();
       onNotice(`School profile saved: ${school.name}.`);
+      onError("");
+    } catch (caught) {
+      onError(String(caught));
+      throw caught;
+    }
+  }, [loadSchools, loadSchoolRegionHistory, loadProgramDashboard, onLoadAuditLog, onError, onNotice]);
+
+  const updateSchool = React.useCallback(async (input: SchoolProfileDraft & { id: number }) => {
+    try {
+      const school = await api<School>("update_school", { input });
+      await loadSchools();
+      await loadSchoolRegionHistory();
+      await loadProgramDashboard();
+      await onLoadAuditLog();
+      onNotice(`School updated: ${school.name}.`);
       onError("");
     } catch (caught) {
       onError(String(caught));
@@ -717,7 +736,7 @@ export function useMasterDataState(options: UseMasterDataStateOptions): UseMaste
     setStudents, setStudentSearch, setBatches, setSchoolRegionHistory, setProgramDashboard, setSipImportReview,
     loadSchools, loadDroppedSchools, loadSchoolRegionHistory, loadRegions,
     loadLectureModels, loadClassPlans, loadProgramDashboard, loadStudents, loadBatches, loadSchoolDeleteImpact,
-    createSchool, dropSchool, deleteSchool, restoreSchool,
+    createSchool, updateSchool, dropSchool, deleteSchool, restoreSchool,
     saveRegion, deleteRegion, remapAndDeleteRegion,
     createLectureModel, saveSchoolClassPlan,
     createBatch, updateBatch, archiveBatch,

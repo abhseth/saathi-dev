@@ -22,6 +22,7 @@ import type {
   UpsertFacultyProfileInput,
 } from "./types";
 
+// Empty string = same-origin relative URLs (proxied by Vercel to Railway)
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 // ── Auth token storage ────────────────────────────────────────────────────────
@@ -46,14 +47,24 @@ async function apiFetch<T>(
   body?: unknown,
 ): Promise<T> {
   const token = getToken();
-  const response = await fetch(`${BASE_URL}/api${path}`, {
+  const url = `${BASE_URL}/api${path}`;
+  const options = {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  };
+  console.log("[API] fetch:", url, options);
+  let response: Response;
+  try {
+    response = await fetch(url, options);
+  } catch (err) {
+    console.error("[API] fetch threw:", err);
+    throw err;
+  }
+  console.log("[API] response:", response.status, response.statusText);
 
   if (!response.ok) {
     const text = await response.text().catch(() => response.statusText);
@@ -102,6 +113,7 @@ const dispatch = {
   list_schools:        { method: "GET",  path: () => "/schools" },
   list_dropped_schools:{ method: "GET",  path: () => "/schools/dropped" },
   create_school:       { method: "POST", path: () => "/schools",          bodyKey: "input" },
+  update_school:       { method: "PUT",  path: (a) => `/schools/${(a.input as {id:number}).id}`, bodyKey: "input" },
   drop_school:         { method: "POST", path: (a) => `/schools/${a.id}/drop`, bodyKey: "body" },
   restore_school:      { method: "POST", path: (a) => `/schools/${a.id}/restore` },
   get_school_delete_impact: { method: "GET", path: (a) => `/schools/${a.id}/delete-impact` },
@@ -123,6 +135,9 @@ const dispatch = {
   delete_student:      { method: "DELETE", path: (a) => `/students/${a.id}` },
   get_student_timeline:{ method: "GET",  path: (a) => `/students/${a.id}` },
   list_batches:        { method: "GET",  path: (a) => `/batches${a.schoolId ? `?school_id=${a.schoolId}` : ""}` },
+  get_batch:           { method: "GET",  path: (a) => `/batches/${a.id}` },
+  get_batch_students:  { method: "GET",  path: (a) => `/batches/${a.id}/students` },
+  batch_analytics:     { method: "GET",  path: () => "/batch-analytics" },
   create_batch:        { method: "POST", path: () => "/batches", bodyKey: "input" },
   update_batch:        { method: "PUT",  path: (a) => `/batches/${(a.input as {id:number}).id}`, bodyKey: "input" },
   archive_batch:       { method: "DELETE", path: (a) => `/batches/${a.id}` },

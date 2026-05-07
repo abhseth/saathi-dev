@@ -1964,6 +1964,25 @@ fn apply_migrations(conn: &Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // Migration 70: Deputy Regional Academic Head on regions
+    if !migration_applied(conn, 70)? {
+        for col in [
+            "regional_deputy_academic_head_name",
+            "regional_deputy_academic_head_mobile",
+            "regional_deputy_academic_head_email",
+        ] {
+            if !column_exists(conn, "regions", col)? {
+                conn.execute(
+                    &format!("ALTER TABLE regions ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"),
+                    [],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        conn.execute("INSERT INTO schema_migrations (version) VALUES (70)", [])
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 

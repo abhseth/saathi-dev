@@ -19,11 +19,11 @@ pub use tickets::{
 // Schools
 pub use schools::{
     archive_batch, create_batch, create_lecture_model, create_school, create_student,
-    delete_region, delete_school, delete_student, drop_school, get_batch,
-    get_school_delete_impact, get_school_program_dashboard, get_student, list_audit_log,
-    list_batches, list_dropped_schools, list_lecture_models, list_regions,
+    delete_region, delete_school, delete_student, drop_school, get_batch, get_batch_analytics,
+    get_batch_students, get_school_delete_impact, get_school_program_dashboard, get_student,
+    list_audit_log, list_batches, list_dropped_schools, list_lecture_models, list_regions,
     list_school_class_plans, list_school_region_history, list_schools, list_students_paginated,
-    restore_school, update_batch, update_student, upsert_region,
+    restore_school, update_batch, update_school, update_student, upsert_region,
     upsert_school_class_plan,
 };
 
@@ -71,5 +71,7 @@ pub use analytics::{
 
 // Audit
 pub use audit::insert_audit_log;
+
+pub use common::get_school;
 
 // Common helpers (re-exported for backward compat where routes use them directly)

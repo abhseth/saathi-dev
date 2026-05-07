@@ -497,6 +497,9 @@ export type Region = {
   regional_business_head_name: string;
   regional_business_head_mobile: string;
   regional_business_head_email: string;
+  regional_deputy_academic_head_name: string;
+  regional_deputy_academic_head_mobile: string;
+  regional_deputy_academic_head_email: string;
   updated_at: string;
 };
 
@@ -608,6 +611,20 @@ export type CreateBatchInput = {
 
 export type UpdateBatchInput = CreateBatchInput & {
   id: number;
+};
+
+export type BatchDetail = Batch & {
+  student_count: number;
+  faculty_count: number;
+  active_ticket_count: number;
+  upcoming_session_count: number;
+};
+
+export type BatchAnalytics = {
+  batches: BatchDetail[];
+  total_students: number;
+  total_capacity: number;
+  overall_utilization: number;
 };
 
 export type CreateTicketDraft = {

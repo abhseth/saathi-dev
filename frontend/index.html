@@ -14,6 +14,28 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="SAATHI" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Aggressive service-worker cleanup on every load -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          var hadAny = false;
+          for (var i = 0; i < regs.length; i++) {
+            regs[i].unregister();
+            hadAny = true;
+          }
+          if (hadAny && !window.__swReloaded) {
+            window.__swReloaded = true;
+            window.location.reload();
+          }
+        });
+        if ("caches" in window) {
+          caches.keys().then(function(keys) {
+            keys.forEach(function(k) { caches.delete(k); });
+          });
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

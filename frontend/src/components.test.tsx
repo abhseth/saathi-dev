@@ -89,6 +89,7 @@ describe("MasterDataPanel", () => {
     sipImportPreview: null,
     onClose: vi.fn(),
     onCreateSchool: vi.fn(),
+    onUpdateSchool: vi.fn(),
     onSaveRegion: vi.fn(),
     onCreateLectureModel: vi.fn(),
     onSaveClassPlan: vi.fn(),

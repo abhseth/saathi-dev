@@ -714,6 +714,9 @@ fn import_region_id_from_row(
             regional_business_head_name: String::new(),
             regional_business_head_mobile: String::new(),
             regional_business_head_email: String::new(),
+            regional_deputy_academic_head_name: String::new(),
+            regional_deputy_academic_head_mobile: String::new(),
+            regional_deputy_academic_head_email: String::new(),
         },
         actor,
     )?;

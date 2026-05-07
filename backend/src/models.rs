@@ -392,6 +392,44 @@ pub struct CreateSchoolInput {
     pub vp_tagging: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateSchoolInput {
+    pub id: i64,
+    pub name: String,
+    pub region_id: Option<i64>,
+    pub program_model: String,
+    pub distance_classification: String,
+    pub sip_academic_owner_role: String,
+    pub sip_academic_owner_name: String,
+    pub sip_academic_owner_mobile: String,
+    pub sip_academic_owner_email: String,
+    pub center_head_name: String,
+    pub center_head_mobile: String,
+    pub center_head_email: String,
+    pub principal_name: String,
+    pub principal_mobile: String,
+    pub principal_email: String,
+    pub school_spoc_name: String,
+    pub school_spoc_mobile: String,
+    pub school_spoc_email: String,
+    pub central_academic_spoc_name: String,
+    pub central_academic_spoc_mobile: String,
+    pub central_academic_spoc_email: String,
+    pub central_business_spoc_name: String,
+    pub central_business_spoc_mobile: String,
+    pub central_business_spoc_email: String,
+    pub bh_name: String,
+    pub bh_mobile: String,
+    pub bh_email: String,
+    pub aom_name: String,
+    pub aom_mobile: String,
+    pub aom_email: String,
+    #[serde(default)]
+    pub mapped_vp_center: String,
+    #[serde(default)]
+    pub vp_tagging: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Region {
     pub id: i64,
@@ -402,6 +440,9 @@ pub struct Region {
     pub regional_business_head_name: String,
     pub regional_business_head_mobile: String,
     pub regional_business_head_email: String,
+    pub regional_deputy_academic_head_name: String,
+    pub regional_deputy_academic_head_mobile: String,
+    pub regional_deputy_academic_head_email: String,
     pub updated_at: String,
 }
 
@@ -415,6 +456,9 @@ pub struct UpsertRegionInput {
     pub regional_business_head_name: String,
     pub regional_business_head_mobile: String,
     pub regional_business_head_email: String,
+    pub regional_deputy_academic_head_name: String,
+    pub regional_deputy_academic_head_mobile: String,
+    pub regional_deputy_academic_head_email: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -600,6 +644,24 @@ pub struct UpdateBatchInput {
     pub track: String,
     pub batch_pattern: String,
     pub capacity: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchDetail {
+    #[serde(flatten)]
+    pub batch: Batch,
+    pub student_count: i64,
+    pub faculty_count: i64,
+    pub active_ticket_count: i64,
+    pub upcoming_session_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchAnalytics {
+    pub batches: Vec<BatchDetail>,
+    pub total_students: i64,
+    pub total_capacity: i64,
+    pub overall_utilization: f64,
 }
 
 #[derive(Debug, Serialize)]

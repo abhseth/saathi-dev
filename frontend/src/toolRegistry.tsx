@@ -198,6 +198,17 @@ function IconBarChart({ size = 18 }: { size?: number }) {
   );
 }
 
+function IconUsersGroup({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
 /* ── Tool registry ───────────────────────────────────────────────────────── */
 
 export type AdminView =
@@ -264,6 +275,7 @@ export const APP_TOOLS: AppTool[] = [
   { id: "compliance-scorecard", label: "Compliance", icon: React.createElement(IconClipboard), roles: ["admin", "aom"], view: "compliance-scorecard" },
   { id: "deviation-scoreboard", label: "Deviation", icon: React.createElement(IconBarChart), roles: ["admin", "aom"], view: "deviation-scoreboard" },
   { id: "holidays", label: "Holidays", icon: React.createElement(IconCalendar), roles: ["admin", "aom"], view: "holidays" },
+  { id: "batches", label: "Batches", icon: React.createElement(IconUsersGroup), roles: ["admin", "aom", "viewer", "agent"], view: "batches" },
 ];
 
 export function isToolVisible(tool: AppTool, currentUserRole: string): boolean {

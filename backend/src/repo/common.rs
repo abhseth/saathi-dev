@@ -229,7 +229,10 @@ pub fn region_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Region> {
         regional_business_head_name: row.get(5)?,
         regional_business_head_mobile: row.get(6)?,
         regional_business_head_email: row.get(7)?,
-        updated_at: row.get(8)?,
+        regional_deputy_academic_head_name: row.get(8)?,
+        regional_deputy_academic_head_mobile: row.get(9)?,
+        regional_deputy_academic_head_email: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 
@@ -238,7 +241,9 @@ pub fn get_region(conn: &Connection, id: i64) -> Result<Region, String> {
         "
         SELECT id, name, regional_academic_head_name, regional_academic_head_mobile,
                regional_academic_head_email, regional_business_head_name,
-               regional_business_head_mobile, regional_business_head_email, updated_at
+               regional_business_head_mobile, regional_business_head_email,
+               regional_deputy_academic_head_name, regional_deputy_academic_head_mobile,
+               regional_deputy_academic_head_email, updated_at
         FROM regions
         WHERE id = ?1
         ",
@@ -619,7 +624,7 @@ mod tests {
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
                 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
                 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
-                65, 66, 67, 68, 69
+                65, 66, 67, 68, 69, 70
             ]
         );
         assert_eq!(tickets[0].school_name, "Sunrise International School");
@@ -673,7 +678,7 @@ pub fn assignment_rule_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Ass
 
 pub fn get_region_by_name(conn: &Connection, name: &str) -> Result<Region, String> {
     conn.query_row(
-        "SELECT id, name, regional_academic_head_name, regional_academic_head_mobile, regional_academic_head_email, regional_business_head_name, regional_business_head_mobile, regional_business_head_email, updated_at FROM regions WHERE name = ?1",
+        "SELECT id, name, regional_academic_head_name, regional_academic_head_mobile, regional_academic_head_email, regional_business_head_name, regional_business_head_mobile, regional_business_head_email, regional_deputy_academic_head_name, regional_deputy_academic_head_mobile, regional_deputy_academic_head_email, updated_at FROM regions WHERE name = ?1",
         params![name],
         region_from_row,
     )
